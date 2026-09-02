@@ -10,6 +10,7 @@ export const metadata: Metadata = { title: "About" };
 
 export default async function AboutPage() {
   const [settings, page] = await Promise.all([getSettings(), getPage("about")]);
+  const body = page?.content?.trim() || settings.meetAnie;
 
   return (
     <div>
@@ -39,17 +40,19 @@ export default async function AboutPage() {
               />
             </div>
           </ScrollReveal>
-          <ScrollReveal variant="right" delay={120}>
-            <ContentBlocks content={page?.content || settings.meetAnie} />
-            <div className="mt-10 flex flex-wrap gap-3">
+          <div>
+            <ScrollReveal variant="right" delay={80}>
+              <ContentBlocks content={body} />
+            </ScrollReveal>
+            <ScrollReveal delay={160} className="mt-10 flex flex-wrap gap-3">
               <Link href="/services" className="btn">
                 Explore services
               </Link>
               <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold">
                 Book an appointment
               </a>
-            </div>
-          </ScrollReveal>
+            </ScrollReveal>
+          </div>
         </div>
       </section>
     </div>

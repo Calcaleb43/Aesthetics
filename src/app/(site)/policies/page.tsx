@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
-import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getPage, getSettings } from "@/lib/content/queries";
 
 export const metadata: Metadata = { title: "Policies" };
@@ -25,9 +24,9 @@ export default async function PoliciesPage() {
       />
 
       <section className="section">
-        <ScrollReveal className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-3xl">
           <ContentBlocks content={page?.content || ""} />
-        </ScrollReveal>
+        </div>
       </section>
     </div>
   );

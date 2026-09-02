@@ -34,6 +34,8 @@ export function ScrollReveal({
       return;
     }
 
+    // Tall blocks (policies, about) can never hit a high threshold — use 0
+    // so any intersection reveals content.
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -43,11 +45,18 @@ export function ScrollReveal({
           setVisible(false);
         }
       },
-      { threshold: 0.14, rootMargin: "0px 0px -8% 0px" },
+      { threshold: 0, rootMargin: "0px 0px -32px 0px" },
     );
 
     observer.observe(node);
-    return () => observer.disconnect();
+
+    // Safety: never leave content permanently invisible
+    const fallback = window.setTimeout(() => setVisible(true), 1200);
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(fallback);
+    };
   }, [once]);
 
   return (
