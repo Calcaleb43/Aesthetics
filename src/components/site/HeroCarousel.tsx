@@ -75,17 +75,19 @@ export function HeroCarousel({
         );
       })}
 
-      <div className="relative z-10 mx-auto flex min-h-[92vh] max-w-7xl flex-col justify-end px-5 pb-16 pt-28 lg:px-8 lg:pb-20">
+      <div className="relative z-10 mx-auto flex min-h-[92vh] max-w-7xl flex-col justify-end px-5 pb-12 pt-24 sm:pb-16 sm:pt-28 lg:px-8 lg:pb-20">
         <div key={index} className="hero-slide-copy max-w-5xl">
           <p className="eyebrow !text-[var(--accent-soft)]">
             <span>{active.eyebrow}</span>
           </p>
-          <h1 className="display mt-5 text-[clamp(2.8rem,9vw,6.4rem)] leading-[0.9] text-white">
+          <h1 className="display mt-4 text-[clamp(2.35rem,11vw,6.4rem)] leading-[0.92] text-white sm:mt-5 sm:leading-[0.9]">
             {active.title}
           </h1>
-          <div className="mt-6 h-px w-48 origin-left bg-[linear-gradient(90deg,var(--gold),transparent)] hero-slide-rule" />
-          <p className="mt-6 max-w-xl text-lg leading-8 text-white/80 md:text-xl">{active.subtitle}</p>
-          <div className="mt-10 flex flex-wrap gap-3">
+          <div className="mt-5 h-px w-32 origin-left bg-[linear-gradient(90deg,var(--gold),transparent)] hero-slide-rule sm:mt-6 sm:w-48" />
+          <p className="mt-5 max-w-xl text-base leading-7 text-white/80 sm:mt-6 sm:text-lg sm:leading-8 md:text-xl">
+            {active.subtitle}
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3 sm:mt-10">
             <a
               href={active.ctaHref.startsWith("http") ? active.ctaHref : active.ctaHref}
               target={active.ctaHref.startsWith("http") ? "_blank" : undefined}
@@ -125,8 +127,8 @@ export function HeroCarousel({
           </div>
         </div>
 
-        <div className="mt-12 flex items-center justify-between gap-6 border-t border-white/15 pt-6">
-          <div className="flex items-center gap-2" role="tablist" aria-label="Slide selectors">
+        <div className="mt-10 flex flex-col gap-5 border-t border-white/15 pt-6 sm:mt-12 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2" role="tablist" aria-label="Slide selectors">
             {slides.map((slide, i) => (
               <button
                 key={`dot-${i}`}
@@ -134,7 +136,7 @@ export function HeroCarousel({
                 role="tab"
                 aria-selected={i === index}
                 aria-label={`Go to slide ${i + 1}: ${slide.title}`}
-                className="group relative h-10 w-14 overflow-hidden"
+                className="group relative h-10 min-w-0 flex-1 overflow-hidden sm:h-10 sm:max-w-14"
                 onClick={() => goTo(i)}
               >
                 <span className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-white/25 transition group-hover:bg-white/50" />
@@ -152,26 +154,28 @@ export function HeroCarousel({
             ))}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
             <span className="text-[0.7rem] tracking-[0.22em] text-white/55">
               {String(index + 1).padStart(2, "0")} / {String(count).padStart(2, "0")}
             </span>
-            <button
-              type="button"
-              aria-label="Previous slide"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 text-sm transition hover:border-[var(--gold)] hover:text-[var(--gold)]"
-              onClick={() => goTo(index - 1)}
-            >
-              ←
-            </button>
-            <button
-              type="button"
-              aria-label="Next slide"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 text-sm transition hover:border-[var(--gold)] hover:text-[var(--gold)]"
-              onClick={() => goTo(index + 1)}
-            >
-              →
-            </button>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                aria-label="Previous slide"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 text-sm transition hover:border-[var(--gold)] hover:text-[var(--gold)]"
+                onClick={() => goTo(index - 1)}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                aria-label="Next slide"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-white/25 text-sm transition hover:border-[var(--gold)] hover:text-[var(--gold)]"
+                onClick={() => goTo(index + 1)}
+              >
+                →
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -198,7 +198,7 @@ export default async function HomePage() {
       <section className="section">
         <div className="container">
           <ScrollReveal variant="up">
-            <div className="relative overflow-hidden border border-black/10 bg-black px-8 py-14 text-white md:px-14 md:py-16">
+            <div className="relative overflow-hidden border border-black/10 bg-black px-5 py-12 text-white sm:px-8 sm:py-14 md:px-14 md:py-16">
               <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[radial-gradient(circle,rgba(198,167,94,0.35),transparent_70%)]" />
               <div className="relative z-10 flex flex-col items-start justify-between gap-8 md:flex-row md:items-center">
                 <div>

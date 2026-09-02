@@ -380,10 +380,14 @@ img {
 
 .service-row {
   display: grid;
-  gap: 1rem;
-  padding: 1.75rem 0;
+  gap: 0.65rem;
+  padding: 1.5rem 0;
   border-bottom: 1px solid var(--line);
   transition: padding 260ms var(--ease-out), background 260ms var(--ease-out);
+}
+
+.service-row .arrow {
+  justify-self: start;
 }
 
 @media (min-width: 768px) {
@@ -391,6 +395,11 @@ img {
     grid-template-columns: 4.5rem 1fr auto;
     align-items: baseline;
     gap: 2rem;
+    padding: 1.75rem 0;
+  }
+
+  .service-row .arrow {
+    justify-self: auto;
   }
 }
 

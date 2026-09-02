@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
 
 function InstagramIcon({ size = 16 }: { size?: number }) {
@@ -25,12 +25,19 @@ export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: Nav
   const [open, setOpen] = useState(false);
   const [servicesOpen, setServicesOpen] = useState(false);
 
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   return (
     <header className="sticky top-0 z-50 border-b border-black/5 bg-white/80 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-5 py-4 lg:gap-4 lg:px-8">
         <Link
           href="/"
-          className="text-[0.82rem] font-semibold tracking-[0.22em] transition hover:text-[var(--gold-deep)]"
+          className="min-w-0 truncate text-[0.72rem] font-semibold tracking-[0.14em] transition hover:text-[var(--gold-deep)] sm:text-[0.82rem] sm:tracking-[0.22em]"
         >
           {siteName}
         </Link>
@@ -113,7 +120,7 @@ export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: Nav
       </div>
 
       {open && (
-        <div className="border-t border-black/5 bg-white px-5 py-6 lg:hidden">
+        <div className="max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-t border-black/5 bg-white px-5 py-6 lg:hidden">
           <div className="flex flex-col gap-4 text-sm uppercase tracking-[0.14em]">
             <Link href="/" onClick={() => setOpen(false)}>
               Home
@@ -144,6 +151,16 @@ export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: Nav
             <Link href="/about" onClick={() => setOpen(false)}>
               About
             </Link>
+            <a
+              href={instagramUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center gap-2 normal-case tracking-normal"
+            >
+              <InstagramIcon />
+              Instagram
+            </a>
             <a href={bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold mt-2 w-fit">
               Book Now
             </a>
