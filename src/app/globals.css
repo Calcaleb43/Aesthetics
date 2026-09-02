@@ -360,9 +360,9 @@ img {
 .nav-link::after {
   content: "";
   position: absolute;
-  left: 0;
-  bottom: -0.35rem;
-  width: 100%;
+  left: 0.65rem;
+  right: 0.65rem;
+  bottom: 0.15rem;
   height: 1px;
   background: var(--gold);
   transform: scaleX(0);
@@ -370,12 +370,28 @@ img {
   transition: transform 260ms var(--ease-out);
 }
 
-.nav-link:hover {
+.nav-link:hover,
+.nav-link.is-active {
   color: var(--gold-deep);
 }
 
-.nav-link:hover::after {
+.nav-link:hover::after,
+.nav-link.is-active::after {
   transform: scaleX(1);
+}
+
+.mobile-nav-link {
+  padding: 0.85rem 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  transition: color 200ms ease, padding 200ms ease;
+}
+
+.mobile-nav-link:hover,
+.mobile-nav-link.is-active {
+  color: var(--gold-deep);
 }
 
 .service-row {

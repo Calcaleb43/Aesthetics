@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ContactForm } from "@/components/site/ContactForm";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
+import { StudioMap } from "@/components/site/StudioMap";
 import { getSettings } from "@/lib/content/queries";
 
 export const metadata: Metadata = { title: "Contact" };
@@ -44,6 +45,21 @@ export default async function ContactPage() {
             <div className="border border-black/10 bg-[var(--bg-deep)] p-6 md:p-8">
               <ContactForm />
             </div>
+          </ScrollReveal>
+        </div>
+      </section>
+
+      <section className="section-tight bg-[var(--bg-deep)]">
+        <div className="container">
+          <ScrollReveal>
+            <p className="eyebrow">Find us</p>
+            <h2 className="display mt-4 text-3xl md:text-4xl">Studio location</h2>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[var(--ink-soft)] md:text-base">
+              {settings.address}
+            </p>
+          </ScrollReveal>
+          <ScrollReveal delay={100} className="mt-8">
+            <StudioMap address={settings.address} />
           </ScrollReveal>
         </div>
       </section>

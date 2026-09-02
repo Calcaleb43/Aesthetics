@@ -38,14 +38,23 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
             <Link href="/services" className="transition hover:text-[var(--gold)]">
               Services
             </Link>
-            <Link href="/book-now" className="transition hover:text-[var(--gold)]">
-              Book Now
+            <Link href="/about" className="transition hover:text-[var(--gold)]">
+              About
+            </Link>
+            <Link href="/care" className="transition hover:text-[var(--gold)]">
+              Care
+            </Link>
+            <Link href="/faqs" className="transition hover:text-[var(--gold)]">
+              FAQs
             </Link>
             <Link href="/contact" className="transition hover:text-[var(--gold)]">
               Contact
             </Link>
             <Link href="/policies" className="transition hover:text-[var(--gold)]">
               Policies
+            </Link>
+            <Link href="/book-now" className="transition hover:text-[var(--gold)]">
+              Book Now
             </Link>
             <a
               href={settings.instagramUrl}
