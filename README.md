@@ -1,36 +1,81 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Aniekanvas Aesthetics
 
-## Getting Started
+Next.js + Neon Postgres + Vercel rebuild of the Aniekanvas Aesthetics Squarespace site, with a built-in advanced CMS.
 
-First, run the development server:
+## Stack
+
+- **Frontend:** Next.js 16 (App Router), React, Tailwind CSS
+- **Database:** Neon Postgres via Prisma 7
+- **CMS:** `/admin` — pages, services, FAQs, care guides, media, inquiries, site settings
+- **Deploy:** Vercel
+
+## Quick start (local, no DB)
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). Content is served from the scraped seed until Neon is connected.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+CMS login (env bootstrap):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Email: `admin@aniekanvas.com`
+- Password: `aniekanvas-admin`
 
-## Learn More
+Override with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 
-To learn more about Next.js, take a look at the following resources:
+## Connect Neon + enable live CMS writes
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Create a Neon project and copy the connection string.
+2. Copy `.env.example` → `.env.local` and set:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```env
+DATABASE_URL=postgresql://...
+AUTH_SECRET=long-random-string
+ADMIN_EMAIL=admin@aniekanvas.com
+ADMIN_PASSWORD=choose-a-strong-password
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+3. Push schema and seed scraped content:
+
+```bash
+npm run db:push
+npm run db:seed
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Push this repo to GitHub.
+2. Import the project in Vercel.
+3. Add the same env vars (`DATABASE_URL`, `AUTH_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `NEXT_PUBLIC_SITE_URL`).
+4. Deploy, then run seed once (local against production DB, or Vercel CLI):
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+DATABASE_URL=... npm run db:push
+DATABASE_URL=... npm run db:seed
+```
+
+5. Visit `/admin` to manage content.
+
+## Site map
+
+| Route | Content |
+| --- | --- |
+| `/` | Home |
+| `/about` | About Anie |
+| `/services` | Service index |
+| `/services/[slug]` | Service detail |
+| `/faqs`, `/faqs/[slug]` | FAQs |
+| `/care`, `/care/[slug]` | Precare & aftercare |
+| `/policies` | Policies |
+| `/book-now` | Booking info + Acuity link |
+| `/contact` | Consultation form |
+| `/admin` | CMS |
+
+Booking portal: [aniekanvasaesthetics.as.me](https://aniekanvasaesthetics.as.me)
+
+## Content source
+
+Scraped from the Squarespace site into `content-seed/` and structured for the CMS in `src/lib/content/seed-data.json`.

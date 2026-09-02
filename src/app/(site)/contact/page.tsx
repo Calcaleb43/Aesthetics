@@ -1,0 +1,52 @@
+import type { Metadata } from "next";
+import { ContactForm } from "@/components/site/ContactForm";
+import { PageHero } from "@/components/site/PageHero";
+import { ScrollReveal } from "@/components/site/ScrollReveal";
+import { getSettings } from "@/lib/content/queries";
+
+export const metadata: Metadata = { title: "Contact" };
+
+export default async function ContactPage() {
+  const settings = await getSettings();
+  const heroImage = settings.galleryImages[1] || settings.aboutImage || settings.heroImage;
+
+  return (
+    <div>
+      <PageHero
+        eyebrow="Contact"
+        title="Request a consultation"
+        subtitle="Share your goals and questions. We'll follow up to help you choose the right next step."
+        image={heroImage}
+        imageAlt="Contact Aniekanvas"
+        ctas={[
+          { label: "Book Now", href: settings.bookingUrl },
+          { label: "View services", href: "/services", variant: "ghost" },
+        ]}
+      />
+
+      <section className="section">
+        <div className="container grid gap-12 lg:grid-cols-2">
+          <ScrollReveal variant="left">
+            <p className="eyebrow">Studio details</p>
+            <h2 className="display mt-4 text-3xl md:text-4xl">Visit or reach out</h2>
+            <div className="gold-rule mt-6 max-w-xs" />
+            <div className="mt-8 space-y-2 text-sm leading-7 text-[var(--ink-soft)]">
+              <p>{settings.address}</p>
+              <a href={`mailto:${settings.email}`} className="block transition hover:text-[var(--gold-deep)]">
+                {settings.email}
+              </a>
+              <a href={`tel:${settings.phone}`} className="block transition hover:text-[var(--gold-deep)]">
+                {settings.phone}
+              </a>
+            </div>
+          </ScrollReveal>
+          <ScrollReveal variant="right" delay={120}>
+            <div className="border border-black/10 bg-[var(--bg-deep)] p-6 md:p-8">
+              <ContactForm />
+            </div>
+          </ScrollReveal>
+        </div>
+      </section>
+    </div>
+  );
+}

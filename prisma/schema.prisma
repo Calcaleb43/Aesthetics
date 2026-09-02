@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Admin {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  name         String   @db.VarChar(120)
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("admins")
+}
+
+model SiteSettings {
+  id             Int      @id @default(1)
+  siteName       String   @map("site_name") @db.VarChar(160)
+  tagline        String
+  subtitle       String
+  email          String   @db.VarChar(255)
+  phone          String   @db.VarChar(64)
+  address        String
+  instagramUrl   String   @map("instagram_url")
+  bookingUrl     String   @map("booking_url")
+  heroImage      String   @map("hero_image")
+  aboutImage     String   @map("about_image")
+  galleryImages  Json     @default("[]") @map("gallery_images")
+  homeIntro      String   @map("home_intro")
+  whyHeadline    String   @map("why_headline")
+  whyBody        String   @map("why_body")
+  values         Json     @default("[]")
+  meetAnie       String   @map("meet_anie")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("site_settings")
+}
+
+model Page {
+  id         String   @id @default(uuid()) @db.Uuid
+  slug       String   @unique @db.VarChar(120)
+  title      String   @db.VarChar(200)
+  status     String   @default("draft") @db.VarChar(20)
+  excerpt    String   @default("")
+  content    String   @default("")
+  seoTitle   String?  @map("seo_title") @db.VarChar(200)
+  coverImage String?  @map("cover_image")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("pages")
+}
+
+model Service {
+  id         String   @id @default(uuid()) @db.Uuid
+  slug       String   @unique @db.VarChar(160)
+  title      String   @db.VarChar(200)
+  shortTitle String   @map("short_title") @db.VarChar(200)
+  tagline    String
+  summary    String
+  content    String   @default("")
+  coverImage String?  @map("cover_image")
+  bookingUrl String?  @map("booking_url")
+  sortOrder  Int      @default(0) @map("sort_order")
+  status     String   @default("draft") @db.VarChar(20)
+  featured   Boolean  @default(true)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("services")
+}
+
+model Faq {
+  id          String   @id @default(uuid()) @db.Uuid
+  serviceSlug String   @unique @map("service_slug") @db.VarChar(160)
+  title       String   @db.VarChar(200)
+  intro       String   @default("")
+  status      String   @default("draft") @db.VarChar(20)
+  items       Json     @default("[]")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("faqs")
+}
+
+model CareGuide {
+  id          String   @id @default(uuid()) @db.Uuid
+  serviceSlug String   @unique @map("service_slug") @db.VarChar(160)
+  title       String   @db.VarChar(200)
+  content     String   @default("")
+  coverImage  String?  @map("cover_image")
+  status      String   @default("draft") @db.VarChar(20)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("care_guides")
+}
+
+model MediaAsset {
+  id        String   @id @default(uuid()) @db.Uuid
+  url       String
+  alt       String   @default("")
+  label     String   @default("") @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("media_assets")
+}
+
+model Inquiry {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @db.VarChar(160)
+  email           String   @db.VarChar(255)
+  phone           String?  @db.VarChar(64)
+  serviceInterest String?  @map("service_interest") @db.VarChar(200)
+  message         String
+  status          String   @default("new") @db.VarChar(20)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("inquiries")
+}
