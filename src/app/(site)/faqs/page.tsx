@@ -1,3 +1,4 @@
+import { bookingHref } from "@/lib/booking/money";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
@@ -24,7 +25,7 @@ export default async function FaqsIndexPage() {
         image={heroImage}
         imageAlt="FAQs"
         ctas={[
-          { label: "Book Now", href: settings.bookingUrl },
+          { label: "Book Now", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "View services", href: "/services", variant: "ghost" },
         ]}
       />

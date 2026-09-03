@@ -15,10 +15,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid" }, { status: 400 });
   }
 
-  const envEmail = process.env.ADMIN_EMAIL || "admin@aniekanvas.com";
-  const envPassword = process.env.ADMIN_PASSWORD || "aniekanvas-admin";
+  const envEmail = process.env.ADMIN_EMAIL;
+  const envPassword = process.env.ADMIN_PASSWORD;
+  const allowEnvLogin =
+    !!envEmail &&
+    !!envPassword &&
+    (process.env.NODE_ENV !== "production" || process.env.ALLOW_ENV_ADMIN_LOGIN === "true");
 
   if (
+    allowEnvLogin &&
     parsed.data.email.toLowerCase() === envEmail.toLowerCase() &&
     parsed.data.password === envPassword
   ) {

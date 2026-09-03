@@ -23,7 +23,7 @@ export function LoginForm() {
     });
     setLoading(false);
     if (!res.ok) {
-      setError("Invalid credentials");
+      setError("Invalid email or password");
       return;
     }
     router.push("/admin");
@@ -32,30 +32,21 @@ export function LoginForm() {
 
   return (
     <form onSubmit={onSubmit} className="mt-8 grid gap-4">
-      <label className="grid gap-2 text-sm">
+      <label className="grid gap-2 text-sm text-white/75">
         Email
-        <input
-          name="email"
-          type="email"
-          required
-          defaultValue="admin@aniekanvas.com"
-          className="rounded border border-white/15 bg-black/30 px-4 py-3"
-        />
+        <input name="email" type="email" required autoComplete="username" className="admin-input" />
       </label>
-      <label className="grid gap-2 text-sm">
+      <label className="grid gap-2 text-sm text-white/75">
         Password
         <input
           name="password"
           type="password"
           required
-          className="rounded border border-white/15 bg-black/30 px-4 py-3"
+          autoComplete="current-password"
+          className="admin-input"
         />
       </label>
-      <button
-        type="submit"
-        disabled={loading}
-        className="rounded-full bg-[#f5f1eb] px-5 py-3 text-sm font-semibold uppercase tracking-[0.12em] text-black"
-      >
+      <button type="submit" disabled={loading} className="admin-btn mt-2">
         {loading ? "Signing in..." : "Sign in"}
       </button>
       {error && <p className="text-sm text-red-300">{error}</p>}

@@ -1,3 +1,4 @@
+import { bookingHref } from "@/lib/booking/money";
 import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
@@ -6,7 +7,10 @@ import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getPage, getSettings } from "@/lib/content/queries";
 
-export const metadata: Metadata = { title: "About" };
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPage("about");
+  return { title: page?.seoTitle || page?.title || "About" };
+}
 
 export default async function AboutPage() {
   const [settings, page] = await Promise.all([getSettings(), getPage("about")]);
@@ -22,7 +26,7 @@ export default async function AboutPage() {
         imageAlt="Anie"
         size="tall"
         ctas={[
-          { label: "Book an appointment", href: settings.bookingUrl },
+          { label: "Book an appointment", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "Explore services", href: "/services", variant: "ghost" },
         ]}
       />
@@ -48,9 +52,9 @@ export default async function AboutPage() {
               <Link href="/services" className="btn">
                 Explore services
               </Link>
-              <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold">
+              <Link href={bookingHref(settings.bookingEnabled, settings.bookingUrl)} className="btn btn-gold">
                 Book an appointment
-              </a>
+              </Link>
             </ScrollReveal>
           </div>
         </div>

@@ -1,14 +1,15 @@
+import { bookingHref } from "@/lib/booking/money";
 import type { Metadata } from "next";
 import { ContactForm } from "@/components/site/ContactForm";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { StudioMap } from "@/components/site/StudioMap";
-import { getSettings } from "@/lib/content/queries";
+import { getPublishedServices, getSettings } from "@/lib/content/queries";
 
 export const metadata: Metadata = { title: "Contact" };
 
 export default async function ContactPage() {
-  const settings = await getSettings();
+  const [settings, services] = await Promise.all([getSettings(), getPublishedServices()]);
   const heroImage = settings.galleryImages[1] || settings.aboutImage || settings.heroImage;
 
   return (
@@ -20,7 +21,7 @@ export default async function ContactPage() {
         image={heroImage}
         imageAlt="Contact Aniekanvas"
         ctas={[
-          { label: "Book Now", href: settings.bookingUrl },
+          { label: "Book Now", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "View services", href: "/services", variant: "ghost" },
         ]}
       />
@@ -43,7 +44,7 @@ export default async function ContactPage() {
           </ScrollReveal>
           <ScrollReveal variant="right" delay={120}>
             <div className="border border-black/10 bg-[var(--bg-deep)] p-6 md:p-8">
-              <ContactForm />
+              <ContactForm serviceOptions={services.map((s) => s.title)} />
             </div>
           </ScrollReveal>
         </div>

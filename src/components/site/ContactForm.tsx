@@ -2,19 +2,12 @@
 
 import { FormEvent, useState } from "react";
 
-const services = [
-  "Ombré Brows",
-  "Laser Hair Removal",
-  "Dark Lip Neutralization",
-  "Inkless Stretch Marks & Scar Revision",
-  "DPN / Skin Tag Removal",
-  "Cold Plasma",
-  "General consultation",
-];
-
-export function ContactForm() {
+export function ContactForm({ serviceOptions }: { serviceOptions: string[] }) {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+  const options = [...serviceOptions, "General consultation"].filter(
+    (value, index, arr) => arr.indexOf(value) === index,
+  );
 
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -60,7 +53,7 @@ export function ContactForm() {
       <label className="grid gap-2 text-sm">
         Service interest
         <select name="serviceInterest" className="border border-[var(--line)] bg-white px-4 py-3">
-          {services.map((s) => (
+          {options.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>

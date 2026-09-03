@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
+
+const windowSchema = z.object({ start: z.string(), end: z.string() });
 
 const schema = z.object({
   siteName: z.string(),
@@ -19,19 +22,40 @@ const schema = z.object({
   whyBody: z.string(),
   values: z.array(z.object({ title: z.string(), body: z.string() })),
   meetAnie: z.string(),
+  timezone: z.string().optional(),
+  weeklyHours: z.record(z.string(), z.array(windowSchema)).optional(),
+  slotIntervalMinutes: z.number().int().positive().optional(),
+  bufferMinutes: z.number().int().min(0).optional(),
+  minLeadHours: z.number().int().min(0).optional(),
+  maxAdvanceDays: z.number().int().positive().optional(),
+  hstRateBps: z.number().int().min(0).optional(),
+  bookingEnabled: z.boolean().optional(),
 });
 
 export async function PUT(req: Request) {
   const gate = await requireAdminApi();
   if ("error" in gate) return gate.error;
   const parsed = schema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+
+  const data = {
+    ...parsed.data,
+    timezone: parsed.data.timezone || "America/Toronto",
+    weeklyHours: parsed.data.weeklyHours || {},
+    slotIntervalMinutes: parsed.data.slotIntervalMinutes ?? 30,
+    bufferMinutes: parsed.data.bufferMinutes ?? 15,
+    minLeadHours: parsed.data.minLeadHours ?? 24,
+    maxAdvanceDays: parsed.data.maxAdvanceDays ?? 60,
+    hstRateBps: parsed.data.hstRateBps ?? 1300,
+    bookingEnabled: parsed.data.bookingEnabled ?? true,
+  };
 
   await gate.db.siteSettings.upsert({
     where: { id: 1 },
-    create: { id: 1, ...parsed.data },
-    update: parsed.data,
+    create: { id: 1, ...data },
+    update: data,
   });
 
+  revalidateSite();
   return NextResponse.json({ ok: true });
 }

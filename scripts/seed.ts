@@ -31,11 +31,13 @@ async function main() {
       ...seed.siteSettings,
       galleryImages: seed.siteSettings.galleryImages,
       values: seed.siteSettings.values,
+      weeklyHours: seed.siteSettings.weeklyHours,
     },
     update: {
       ...seed.siteSettings,
       galleryImages: seed.siteSettings.galleryImages,
       values: seed.siteSettings.values,
+      weeklyHours: seed.siteSettings.weeklyHours,
     },
   });
 
@@ -63,6 +65,14 @@ async function main() {
   }
 
   for (const service of seed.services) {
+    const booking = service as typeof service & {
+      durationMinutes?: number;
+      priceCents?: number;
+      depositCents?: number | null;
+      paymentMode?: string;
+      bookable?: boolean;
+      featured?: boolean;
+    };
     await prisma.service.upsert({
       where: { slug: service.slug },
       create: {
@@ -76,6 +86,12 @@ async function main() {
         bookingUrl: service.bookingUrl,
         sortOrder: service.sortOrder,
         status: service.status,
+        featured: booking.featured ?? true,
+        durationMinutes: booking.durationMinutes ?? 60,
+        priceCents: booking.priceCents ?? 0,
+        depositCents: booking.depositCents ?? null,
+        paymentMode: booking.paymentMode ?? "deposit",
+        bookable: booking.bookable ?? true,
       },
       update: {
         title: service.title,
@@ -87,6 +103,12 @@ async function main() {
         bookingUrl: service.bookingUrl,
         sortOrder: service.sortOrder,
         status: service.status,
+        featured: booking.featured ?? true,
+        durationMinutes: booking.durationMinutes ?? 60,
+        priceCents: booking.priceCents ?? 0,
+        depositCents: booking.depositCents ?? null,
+        paymentMode: booking.paymentMode ?? "deposit",
+        bookable: booking.bookable ?? true,
       },
     });
   }

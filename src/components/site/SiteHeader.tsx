@@ -18,6 +18,7 @@ function InstagramIcon({ size = 16 }: { size?: number }) {
 type NavProps = {
   siteName: string;
   bookingUrl: string;
+  bookingExternal?: boolean;
   instagramUrl: string;
   services: { slug: string; title: string }[];
 };
@@ -34,7 +35,7 @@ function linkActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: NavProps) {
+export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, instagramUrl, services }: NavProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [servicesOpen, setServicesOpen] = useState(false);
@@ -139,14 +140,15 @@ export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: Nav
           >
             <InstagramIcon />
           </a>
-          <a
-            href={bookingUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="btn btn-gold !min-h-10 !px-4 !text-[0.62rem] sm:!px-5"
-          >
-            Book Now
-          </a>
+          {bookingExternal ? (
+            <a href={bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold !min-h-10 !px-4 !text-[0.62rem] sm:!px-5">
+              Book Now
+            </a>
+          ) : (
+            <Link href={bookingUrl} className="btn btn-gold !min-h-10 !px-4 !text-[0.62rem] sm:!px-5">
+              Book Now
+            </Link>
+          )}
           <button
             type="button"
             className="inline-flex rounded-full border border-black/15 p-2.5 transition hover:border-[var(--gold)] hover:text-[var(--gold-deep)] lg:hidden"
@@ -228,9 +230,15 @@ export function SiteHeader({ siteName, bookingUrl, instagramUrl, services }: Nav
             </Link>
 
             <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-5">
+            {bookingExternal ? (
               <a href={bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold">
                 Book Now
               </a>
+            ) : (
+              <Link href={bookingUrl} onClick={() => setOpen(false)} className="btn btn-gold">
+                Book Now
+              </Link>
+            )}
               <a
                 href={instagramUrl}
                 target="_blank"

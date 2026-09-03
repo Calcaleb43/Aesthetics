@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { AdminShell } from "@/components/admin/AdminShell";
-import { AdminEditor } from "@/components/admin/AdminEditor";
-import { getAllCare } from "@/lib/content/queries";
+import { CollectionWorkspace } from "@/components/admin/CollectionWorkspace";
+import { getAdminCare } from "@/lib/content/queries";
 
 export default async function AdminCarePage({
   searchParams,
@@ -9,37 +8,42 @@ export default async function AdminCarePage({
   searchParams: Promise<{ slug?: string }>;
 }) {
   const { slug } = await searchParams;
-  const guides = await getAllCare();
-  const selected = guides.find((g) => g.serviceSlug === slug) || guides[0];
+  const guides = await getAdminCare();
 
   return (
-    <AdminShell title="Care Guides">
-      <div className="mb-6 flex flex-wrap gap-2">
-        {guides.map((guide) => (
-          <Link
-            key={guide.serviceSlug}
-            href={`/admin/care?slug=${guide.serviceSlug}`}
-            className={`rounded-full px-4 py-2 text-xs uppercase tracking-[0.12em] ${
-              selected?.serviceSlug === guide.serviceSlug ? "bg-white text-black" : "bg-white/10"
-            }`}
-          >
-            {guide.title}
-          </Link>
-        ))}
-      </div>
-      {selected && (
-        <AdminEditor
-          endpoint="/api/admin/care"
-          initial={selected}
-          fields={[
-            { name: "serviceSlug", label: "Service slug" },
-            { name: "title", label: "Title" },
-            { name: "coverImage", label: "Cover image URL" },
-            { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
-            { name: "content", label: "Content", type: "textarea", rows: 20 },
-          ]}
-        />
-      )}
+    <AdminShell title="Care Guides" description="Pre-care and aftercare instructions by service.">
+      <CollectionWorkspace
+        items={guides.map((guide) => ({
+          key: guide.serviceSlug,
+          label: guide.title,
+          status: guide.status,
+          previewHref: `/care/${guide.serviceSlug}`,
+          data: guide as unknown as Record<string, unknown>,
+        }))}
+        selectedKey={slug}
+        basePath="/admin/care"
+        endpoint="/api/admin/care"
+        deleteEndpoint="/api/admin/care"
+        deleteKey="serviceSlug"
+        lockIdentityFields={["serviceSlug"]}
+        createLabel="New care guide"
+        emptyTitle="No care guides yet"
+        emptyBody="Add pre-care and aftercare content linked to a service."
+        createTemplate={{
+          serviceSlug: "new-service",
+          title: "New care guide",
+          coverImage: "",
+          status: "draft",
+          content: "",
+        }}
+        fields={[
+          { name: "serviceSlug", label: "Service slug" },
+          { name: "title", label: "Title" },
+          { name: "coverImage", label: "Cover image URL" },
+          { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
+          { name: "content", label: "Content", type: "textarea", rows: 20 },
+        ]}
+      />
     </AdminShell>
   );
 }

@@ -1,4 +1,5 @@
 import { AdminShell } from "@/components/admin/AdminShell";
+import { InquiriesClient } from "@/components/admin/InquiriesClient";
 import { getPrisma, hasDatabase } from "@/lib/db";
 
 export default async function AdminInquiriesPage() {
@@ -22,33 +23,21 @@ export default async function AdminInquiriesPage() {
   }
 
   return (
-    <AdminShell title="Inquiries">
+    <AdminShell
+      title="Inquiries"
+      description="Consultation requests from the contact form."
+    >
       {!hasDatabase() && (
-        <p className="mb-6 text-sm text-amber-200">
-          Connect Neon to persist and view consultation inquiries from the contact form.
+        <p className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Connect Neon to persist and manage consultation inquiries.
         </p>
       )}
-      <div className="grid gap-4">
-        {rows.map((row) => (
-          <article key={row.id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg">{row.name}</h2>
-              <p className="text-xs uppercase tracking-[0.14em] text-white/50">
-                {new Date(row.createdAt).toLocaleString()}
-              </p>
-            </div>
-            <p className="mt-2 text-sm text-white/70">
-              {row.email}
-              {row.phone ? ` · ${row.phone}` : ""}
-            </p>
-            {row.serviceInterest && (
-              <p className="mt-1 text-sm text-white/60">Interest: {row.serviceInterest}</p>
-            )}
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/80">{row.message}</p>
-          </article>
-        ))}
-        {!rows.length && <p className="text-sm text-white/50">No inquiries yet.</p>}
-      </div>
+      <InquiriesClient
+        initial={rows.map((row) => ({
+          ...row,
+          createdAt: row.createdAt.toISOString(),
+        }))}
+      />
     </AdminShell>
   );
 }

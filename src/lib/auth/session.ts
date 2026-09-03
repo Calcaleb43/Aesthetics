@@ -4,7 +4,13 @@ import { cookies } from "next/headers";
 const COOKIE = "aniekanvas_admin_session";
 
 function secret() {
-  const value = process.env.AUTH_SECRET || process.env.ADMIN_PASSWORD || "dev-secret-change-me";
+  const value = process.env.AUTH_SECRET;
+  if (!value) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("AUTH_SECRET is required in production");
+    }
+    return new TextEncoder().encode(process.env.ADMIN_PASSWORD || "dev-secret-change-me");
+  }
   return new TextEncoder().encode(value);
 }
 

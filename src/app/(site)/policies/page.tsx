@@ -1,9 +1,13 @@
+import { bookingHref } from "@/lib/booking/money";
 import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { getPage, getSettings } from "@/lib/content/queries";
 
-export const metadata: Metadata = { title: "Policies" };
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPage("policies");
+  return { title: page?.seoTitle || page?.title || "Policies" };
+}
 
 export default async function PoliciesPage() {
   const [page, settings] = await Promise.all([getPage("policies"), getSettings()]);
@@ -18,7 +22,7 @@ export default async function PoliciesPage() {
         image={heroImage}
         imageAlt="Policies"
         ctas={[
-          { label: "Book Now", href: settings.bookingUrl },
+          { label: "Book Now", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "Contact", href: "/contact", variant: "ghost" },
         ]}
       />

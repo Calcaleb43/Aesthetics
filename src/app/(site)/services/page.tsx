@@ -1,3 +1,4 @@
+import { bookingHref } from "@/lib/booking/money";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
@@ -19,7 +20,7 @@ export default async function ServicesIndexPage() {
         image={heroImage}
         imageAlt="Aniekanvas services"
         ctas={[
-          { label: "Book Now", href: settings.bookingUrl },
+          { label: "Book Now", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "Request consult", href: "/contact", variant: "ghost" },
         ]}
       />

@@ -1,38 +1,52 @@
 import type { Metadata } from "next";
-import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
-import { ScrollReveal } from "@/components/site/ScrollReveal";
+import { BookingWizard } from "@/components/site/BookingWizard";
 import { getPage, getSettings } from "@/lib/content/queries";
 
-export const metadata: Metadata = { title: "Book Now" };
+export async function generateMetadata(): Promise<Metadata> {
+  const page = await getPage("book-now");
+  return {
+    title: page?.seoTitle || "Book Now",
+    description: page?.excerpt || "Book an appointment at Aniekanvas Aesthetics.",
+  };
+}
 
-export default async function BookNowPage() {
-  const [settings, page] = await Promise.all([getSettings(), getPage("book-now")]);
-  const heroImage = settings.galleryImages[0] || settings.heroImage;
+export default async function BookNowPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ service?: string }>;
+}) {
+  const { service } = await searchParams;
+  const [page, settings] = await Promise.all([getPage("book-now"), getSettings()]);
 
   return (
-    <div>
+    <>
       <PageHero
-        eyebrow="Appointments"
-        title="Book Now"
-        subtitle="Review policies and care guides before booking, then schedule through our booking portal."
-        image={heroImage}
-        imageAlt="Book an appointment"
-        size="tall"
-        ctas={[
-          { label: "Open booking", href: settings.bookingUrl },
-          { label: "Read policies", href: "/policies", variant: "ghost" },
-        ]}
+        eyebrow="Book Now"
+        title={page?.title || "Book an appointment"}
+        subtitle="Choose a service, pick an available time, and secure your visit with a booking payment."
+        image={settings.heroImage}
+        imageAlt="Aniekanvas Aesthetics studio"
+        size="compact"
       />
-
-      <section className="section">
-        <ScrollReveal className="mx-auto max-w-3xl">
-          <ContentBlocks content={page?.content || ""} />
-          <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold mt-10">
-            Open booking
-          </a>
-        </ScrollReveal>
+      <section className="section-tight mx-auto max-w-4xl px-[clamp(1.25rem,4vw,2rem)] pb-20">
+        <p className="mb-2 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]">
+          Please review pre-care and{" "}
+          <a href="/policies" className="underline">
+            policies
+          </a>{" "}
+          before booking.
+        </p>
+        <BookingWizard initialSlug={service} timezone={settings.timezone} />
+        {!settings.bookingEnabled && settings.bookingUrl ? (
+          <p className="mt-8 text-sm">
+            Prefer the previous scheduler?{" "}
+            <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="underline">
+              Open external booking
+            </a>
+          </p>
+        ) : null}
       </section>
-    </div>
+    </>
   );
 }

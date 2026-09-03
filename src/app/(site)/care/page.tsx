@@ -1,3 +1,4 @@
+import { bookingHref } from "@/lib/booking/money";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
@@ -24,7 +25,7 @@ export default async function CareIndexPage() {
         image={heroImage}
         imageAlt="Precare and aftercare"
         ctas={[
-          { label: "Book Now", href: settings.bookingUrl },
+          { label: "Book Now", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
           { label: "Read policies", href: "/policies", variant: "ghost" },
         ]}
       />

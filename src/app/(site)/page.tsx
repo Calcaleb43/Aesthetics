@@ -2,76 +2,44 @@ import Image from "next/image";
 import Link from "next/link";
 import { HeroCarousel, type HeroSlide } from "@/components/site/HeroCarousel";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
-import { getPublishedServices, getSettings } from "@/lib/content/queries";
+import { bookingHref } from "@/lib/booking/money";
+import { getFeaturedServices, getSettings } from "@/lib/content/queries";
 
 export default async function HomePage() {
-  const [settings, services] = await Promise.all([getSettings(), getPublishedServices()]);
+  const [settings, services] = await Promise.all([getSettings(), getFeaturedServices()]);
+  const bookNow = bookingHref(settings.bookingEnabled, settings.bookingUrl);
 
   const images = [
     settings.heroImage,
     ...settings.galleryImages.filter((src) => src !== settings.heroImage),
-  ].slice(0, 5);
-
-  while (images.length < 5 && settings.galleryImages.length) {
-    images.push(settings.galleryImages[images.length % settings.galleryImages.length]);
-  }
+  ];
 
   const heroSlides: HeroSlide[] = [
     {
-      image: images[0],
+      image: images[0] || settings.heroImage,
       eyebrow: "Toronto · Beauty with intention",
       title: settings.siteName,
       subtitle: settings.tagline,
       ctaLabel: "Book Now",
-      ctaHref: settings.bookingUrl,
+      ctaHref: bookNow,
       secondaryLabel: "Meet Anie",
       secondaryHref: "/about",
     },
-    {
-      image: images[1] || images[0],
-      eyebrow: "Signature brows",
-      title: "Ombré Brows",
-      subtitle: "Effortless brows. Every day. Soft, dimensional shape customized to your features.",
-      ctaLabel: "Explore brows",
-      ctaHref: "/services/ombre-brows",
+    ...services.slice(0, 4).map((service, index) => ({
+      image: service.coverImage || images[(index + 1) % Math.max(images.length, 1)] || settings.heroImage,
+      eyebrow: service.shortTitle,
+      title: service.title,
+      subtitle: service.tagline || service.summary,
+      ctaLabel: "Explore",
+      ctaHref: `/services/${service.slug}`,
       secondaryLabel: "Book Now",
-      secondaryHref: settings.bookingUrl,
-    },
-    {
-      image: images[2] || images[0],
-      eyebrow: "Smooth skin",
-      title: "Laser Hair Removal",
-      subtitle: "Custom plans designed for your skin tone, hair type, and treatment goals.",
-      ctaLabel: "Explore laser",
-      ctaHref: "/services/laser-hair-removal",
-      secondaryLabel: "Book Now",
-      secondaryHref: settings.bookingUrl,
-    },
-    {
-      image: images[3] || images[0],
-      eyebrow: "Balanced tone",
-      title: "Lip Neutralization",
-      subtitle: "Restore balance and enhance natural lip tone with specialized PMU artistry.",
-      ctaLabel: "Explore lips",
-      ctaHref: "/services/dark-lip-neutralization",
-      secondaryLabel: "Book Now",
-      secondaryHref: settings.bookingUrl,
-    },
-    {
-      image: images[4] || images[0],
-      eyebrow: "Advanced care",
-      title: "Skin Renewal",
-      subtitle: "Inkless scar revision, cold plasma, and targeted treatments for healthier-looking skin.",
-      ctaLabel: "View services",
-      ctaHref: "/services",
-      secondaryLabel: "Book Now",
-      secondaryHref: settings.bookingUrl,
-    },
+      secondaryHref: bookingHref(settings.bookingEnabled, settings.bookingUrl, service.slug),
+    })),
   ];
 
   return (
     <div>
-      <HeroCarousel slides={heroSlides} bookingUrl={settings.bookingUrl} />
+      <HeroCarousel slides={heroSlides} bookingUrl={bookNow} />
 
       <section className="section">
         <div className="container">
@@ -82,11 +50,16 @@ export default async function HomePage() {
             </ScrollReveal>
             <ScrollReveal variant="right" delay={120}>
               <p className="max-w-2xl text-lg leading-8 text-[var(--ink-soft)] md:text-xl">{settings.homeIntro}</p>
+              {settings.whyBody ? (
+                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--ink-soft)]">{settings.whyBody}</p>
+              ) : null}
             </ScrollReveal>
           </div>
+
           <ScrollReveal className="mt-12">
-            <div className="gold-rule" />
+            <div className="gold-rule max-w-md" />
           </ScrollReveal>
+
           <div className="value-grid mt-10">
             {settings.values.map((value, index) => (
               <ScrollReveal key={value.title} delay={index * 100} variant="up" className="value-item">
@@ -163,6 +136,9 @@ export default async function HomePage() {
                 </Link>
               </ScrollReveal>
             ))}
+            {!services.length ? (
+              <p className="py-10 text-sm text-[var(--ink-soft)]">Featured services will appear here once published.</p>
+            ) : null}
           </div>
         </div>
       </section>
@@ -209,9 +185,15 @@ export default async function HomePage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold">
-                    Book consultation
-                  </a>
+                  {bookNow.startsWith("http") ? (
+                    <a href={bookNow} target="_blank" rel="noreferrer" className="btn btn-gold">
+                      Book consultation
+                    </a>
+                  ) : (
+                    <Link href={bookNow} className="btn btn-gold">
+                      Book consultation
+                    </Link>
+                  )}
                   <Link
                     href="/contact"
                     className="btn border-white/35 text-white hover:border-white hover:bg-white hover:text-black"

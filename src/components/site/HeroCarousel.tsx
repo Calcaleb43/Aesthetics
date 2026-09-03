@@ -88,14 +88,15 @@ export function HeroCarousel({
             {active.subtitle}
           </p>
           <div className="mt-8 flex flex-wrap gap-3 sm:mt-10">
-            <a
-              href={active.ctaHref.startsWith("http") ? active.ctaHref : active.ctaHref}
-              target={active.ctaHref.startsWith("http") ? "_blank" : undefined}
-              rel={active.ctaHref.startsWith("http") ? "noreferrer" : undefined}
-              className="btn btn-gold"
-            >
-              {active.ctaLabel}
-            </a>
+            {active.ctaHref.startsWith("http") ? (
+              <a href={active.ctaHref} target="_blank" rel="noreferrer" className="btn btn-gold">
+                {active.ctaLabel}
+              </a>
+            ) : (
+              <Link href={active.ctaHref} className="btn btn-gold">
+                {active.ctaLabel}
+              </Link>
+            )}
             {active.secondaryHref && active.secondaryLabel ? (
               active.secondaryHref.startsWith("http") ? (
                 <a
@@ -114,7 +115,7 @@ export function HeroCarousel({
                   {active.secondaryLabel}
                 </Link>
               )
-            ) : (
+            ) : bookingUrl.startsWith("http") ? (
               <a
                 href={bookingUrl}
                 target="_blank"
@@ -123,6 +124,13 @@ export function HeroCarousel({
               >
                 Book Now
               </a>
+            ) : (
+              <Link
+                href={bookingUrl}
+                className="btn border-white/40 text-white hover:border-white hover:bg-white hover:text-black"
+              >
+                Book Now
+              </Link>
             )}
           </div>
         </div>

@@ -1,59 +1,49 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AdminHeader } from "@/components/admin/AdminHeader";
+import { AdminNav } from "@/components/admin/AdminNav";
 import { getSession } from "@/lib/auth/session";
+import { getInquiryStats } from "@/lib/content/queries";
 import { hasDatabase } from "@/lib/db";
-
-const links = [
-  { href: "/admin", label: "Dashboard" },
-  { href: "/admin/pages", label: "Pages" },
-  { href: "/admin/services", label: "Services" },
-  { href: "/admin/faqs", label: "FAQs" },
-  { href: "/admin/care", label: "Care Guides" },
-  { href: "/admin/media", label: "Media" },
-  { href: "/admin/inquiries", label: "Inquiries" },
-  { href: "/admin/settings", label: "Site Settings" },
-];
 
 export async function AdminShell({
   children,
   title,
+  description,
+  actions,
 }: {
   children: React.ReactNode;
   title: string;
+  description?: string;
+  actions?: React.ReactNode;
 }) {
   const session = await getSession();
   if (!session) redirect("/admin/login");
 
+  const stats = await getInquiryStats();
+  const dbReady = hasDatabase();
+
   return (
-    <div className="mx-auto grid min-h-screen max-w-[1400px] lg:grid-cols-[240px_1fr]">
-      <aside className="border-b border-white/10 p-5 lg:border-b-0 lg:border-r">
-        <p className="text-xs uppercase tracking-[0.2em] text-white/50">Aniekanvas CMS</p>
-        <p className="mt-2 text-sm text-white/70">{session.email}</p>
-        {!hasDatabase() && (
-          <p className="mt-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            DATABASE_URL missing — public site uses seed content. Connect Neon to enable writes.
-          </p>
-        )}
-        <nav className="mt-8 flex flex-col gap-2 text-sm">
-          {links.map((link) => (
-            <Link key={link.href} href={link.href} className="rounded px-3 py-2 hover:bg-white/5">
-              {link.label}
-            </Link>
-          ))}
-          <form action="/api/auth/logout" method="post">
-            <button
-              type="submit"
-              className="mt-4 w-full rounded px-3 py-2 text-left text-white/60 hover:bg-white/5"
-            >
-              Sign out
-            </button>
-          </form>
-        </nav>
-      </aside>
-      <section className="p-6 lg:p-10">
-        <h1 className="text-3xl font-medium tracking-tight">{title}</h1>
-        <div className="mt-8">{children}</div>
-      </section>
+    <div className="min-h-screen">
+      <AdminHeader email={session.email} hasDatabase={dbReady} inquiryUnread={stats.unread} />
+
+      <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[240px_1fr]">
+        <aside className="border-b border-white/10 bg-black/20 p-5 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-y-auto lg:border-b-0 lg:border-r">
+          <p className="mb-3 text-[0.62rem] uppercase tracking-[0.18em] text-white/35">Navigate</p>
+          <AdminNav inquiryUnread={stats.unread} />
+        </aside>
+
+        <section className="p-6 lg:p-10">
+          <div className="admin-page-header mb-8 flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-6">
+            <div>
+              <p className="text-[0.65rem] uppercase tracking-[0.2em] text-[#c6a75e]">CMS</p>
+              <h1 className="mt-2 text-3xl font-medium tracking-tight md:text-4xl">{title}</h1>
+              {description ? <p className="mt-2 max-w-2xl text-sm text-white/55">{description}</p> : null}
+            </div>
+            {actions}
+          </div>
+          {children}
+        </section>
+      </div>
     </div>
   );
 }

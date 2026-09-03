@@ -12,15 +12,24 @@ function InstagramIcon({ size = 16 }: { size?: number }) {
 }
 
 export function SiteFooter({ settings }: { settings: SiteSettings }) {
+  const bookHref = settings.bookingEnabled ? "/book-now" : settings.bookingUrl;
+  const bookExternal = !settings.bookingEnabled;
+
   return (
     <footer className="border-t border-white/10 bg-black text-white">
       <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 md:grid-cols-[1.3fr_1fr_1fr] lg:px-8">
         <div>
           <p className="display text-3xl tracking-tight text-[var(--gold)] md:text-4xl">{settings.siteName}</p>
           <p className="mt-5 max-w-md text-sm leading-7 text-white/65">{settings.tagline}</p>
-          <a href={settings.bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold mt-8">
-            Book Now
-          </a>
+          {bookExternal ? (
+            <a href={bookHref} target="_blank" rel="noreferrer" className="btn btn-gold mt-8">
+              Book Now
+            </a>
+          ) : (
+            <Link href={bookHref} className="btn btn-gold mt-8">
+              Book Now
+            </Link>
+          )}
         </div>
         <div>
           <p className="text-[0.68rem] tracking-[0.24em] uppercase text-[var(--gold)]">Visit</p>

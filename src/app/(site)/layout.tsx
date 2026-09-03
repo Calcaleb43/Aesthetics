@@ -5,13 +5,15 @@ import { getPublishedServices, getSettings } from "@/lib/content/queries";
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const [settings, services] = await Promise.all([getSettings(), getPublishedServices()]);
+  const bookingHref = settings.bookingEnabled ? "/book-now" : settings.bookingUrl;
 
   return (
     <div className="site-shell" style={{ fontFamily: "var(--font-figtree), var(--font-body)" }}>
       <MotionProvider>
         <SiteHeader
           siteName={settings.siteName}
-          bookingUrl={settings.bookingUrl}
+          bookingUrl={bookingHref}
+          bookingExternal={!settings.bookingEnabled}
           instagramUrl={settings.instagramUrl}
           services={services.map((s) => ({ slug: s.slug, title: s.title }))}
         />
