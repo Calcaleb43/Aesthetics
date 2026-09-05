@@ -12,7 +12,7 @@ import { getSettings } from "@/lib/content/queries";
 export async function GET(req: Request) {
   if (!hasDatabase()) {
     return NextResponse.json(
-      { error: "Booking requires DATABASE_URL on this environment" },
+      { error: "Booking requires DATABASE_URL or POSTGRES_URL on this environment" },
       { status: 503 },
     );
   }

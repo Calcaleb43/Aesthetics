@@ -25,7 +25,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   if (!hasDatabase()) {
     return NextResponse.json(
-      { error: "Booking requires DATABASE_URL on this environment" },
+      { error: "Booking requires DATABASE_URL or POSTGRES_URL on this environment" },
       { status: 503 },
     );
   }
