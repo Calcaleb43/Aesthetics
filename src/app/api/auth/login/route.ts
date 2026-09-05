@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { createSession } from "@/lib/auth/session";
+import { attachSessionCookie, signSession } from "@/lib/auth/session";
 import { getPrisma, hasDatabase } from "@/lib/db";
 
 const schema = z.object({
@@ -12,11 +12,14 @@ const schema = z.object({
 export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 400 });
   }
 
   if (!process.env.AUTH_SECRET && process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "AUTH_SECRET is not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "AUTH_SECRET is not configured on this server" },
+      { status: 500 },
+    );
   }
 
   const email = parsed.data.email.trim().toLowerCase();
@@ -27,33 +30,42 @@ export async function POST(req: Request) {
   const envPassword = process.env.ADMIN_PASSWORD;
   const allowEnvLogin = process.env.NODE_ENV !== "production";
 
-  if (allowEnvLogin && envEmail && envPassword && email === envEmail && password === envPassword) {
-    await createSession({
-      sub: "env-admin",
-      email: envEmail,
-      name: "Admin",
-    });
-    return NextResponse.json({ ok: true });
-  }
-
-  if (hasDatabase()) {
-    try {
-      const admin = await getPrisma().admin.findUnique({
-        where: { email },
+  try {
+    if (allowEnvLogin && envEmail && envPassword && email === envEmail && password === envPassword) {
+      const token = await signSession({
+        sub: "env-admin",
+        email: envEmail,
+        name: "Admin",
       });
-      if (admin && (await bcrypt.compare(password, admin.passwordHash))) {
-        await createSession({
-          sub: admin.id,
-          email: admin.email,
-          name: admin.name,
-        });
-        return NextResponse.json({ ok: true });
-      }
-    } catch (err) {
-      console.error("Admin login database error", err);
-      return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+      return attachSessionCookie(NextResponse.json({ ok: true }), token);
     }
-  }
 
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasDatabase()) {
+      return NextResponse.json(
+        { error: "Database is not connected on this server (set DATABASE_URL)" },
+        { status: 503 },
+      );
+    }
+
+    const admin = await getPrisma().admin.findUnique({
+      where: { email },
+    });
+    if (admin && (await bcrypt.compare(password, admin.passwordHash))) {
+      const token = await signSession({
+        sub: admin.id,
+        email: admin.email,
+        name: admin.name,
+      });
+      return attachSessionCookie(NextResponse.json({ ok: true }), token);
+    }
+
+    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+  } catch (err) {
+    console.error("Admin login error", err);
+    const message = err instanceof Error ? err.message : "Login failed";
+    if (message.includes("AUTH_SECRET")) {
+      return NextResponse.json({ error: "AUTH_SECRET is not configured on this server" }, { status: 500 });
+    }
+    return NextResponse.json({ error: "Login failed — check server configuration" }, { status: 500 });
+  }
 }

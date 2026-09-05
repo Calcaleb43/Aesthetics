@@ -13,21 +13,28 @@ export function LoginForm() {
     setLoading(true);
     setError("");
     const form = new FormData(e.currentTarget);
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.get("email"),
-        password: form.get("password"),
-      }),
-    });
-    setLoading(false);
-    if (!res.ok) {
-      setError("Invalid email or password");
-      return;
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          email: String(form.get("email") || "").trim(),
+          password: form.get("password"),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(typeof body.error === "string" ? body.error : "Invalid email or password");
+        setLoading(false);
+        return;
+      }
+      router.push("/admin");
+      router.refresh();
+    } catch {
+      setError("Could not reach the login server");
+      setLoading(false);
     }
-    router.push("/admin");
-    router.refresh();
   }
 
   return (
