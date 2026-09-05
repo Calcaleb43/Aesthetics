@@ -27,7 +27,6 @@ export default async function AboutPage() {
         size="tall"
         ctas={[
           { label: "Book an appointment", href: bookingHref(settings.bookingEnabled, settings.bookingUrl) },
-          { label: "Explore services", href: "/services", variant: "ghost" },
         ]}
       />
 
@@ -49,9 +48,6 @@ export default async function AboutPage() {
               <ContentBlocks content={body} />
             </ScrollReveal>
             <ScrollReveal delay={160} className="mt-10 flex flex-wrap gap-3">
-              <Link href="/services" className="btn">
-                Explore services
-              </Link>
               <Link href={bookingHref(settings.bookingEnabled, settings.bookingUrl)} className="btn btn-gold">
                 Book an appointment
               </Link>
