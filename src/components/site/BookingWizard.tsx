@@ -60,6 +60,12 @@ export function BookingWizard({
         const res = await fetch("/api/booking/services");
         const data = await res.json();
         if (cancelled) return;
+        if (!res.ok) {
+          setEnabled(false);
+          setError(data.error || "Booking is unavailable right now.");
+          setServices([]);
+          return;
+        }
         setEnabled(data.enabled !== false);
         const list = (data.services || []) as BookableService[];
         setServices(list);

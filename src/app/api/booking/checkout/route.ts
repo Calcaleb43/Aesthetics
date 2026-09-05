@@ -7,12 +7,13 @@ import {
   PENDING_HOLD_MINUTES,
 } from "@/lib/booking/availability";
 import { chargeBreakdown, formatCad } from "@/lib/booking/money";
+import { findBookableService } from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 
 const schema = z.object({
-  serviceId: z.string().uuid(),
+  serviceId: z.string().min(1),
   startsAt: z.string().datetime(),
   clientName: z.string().min(1).max(160),
   clientEmail: z.string().email().max(255),
@@ -23,7 +24,10 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   if (!hasDatabase()) {
-    return NextResponse.json({ error: "Booking requires a database connection" }, { status: 503 });
+    return NextResponse.json(
+      { error: "Booking requires DATABASE_URL on this environment" },
+      { status: 503 },
+    );
   }
 
   const parsed = schema.safeParse(await req.json());
@@ -45,9 +49,7 @@ export async function POST(req: Request) {
     data: { status: "expired" },
   });
 
-  const service = await db.service.findFirst({
-    where: { id: parsed.data.serviceId, status: "published", bookable: true },
-  });
+  const service = await findBookableService(db, parsed.data.serviceId);
   if (!service) {
     return NextResponse.json({ error: "Service not available" }, { status: 404 });
   }
