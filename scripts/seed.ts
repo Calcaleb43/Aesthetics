@@ -3,13 +3,14 @@ import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "../src/generated/prisma/client";
 import seed from "../src/lib/content/seed-data.json";
+import { databaseUrl, hasDatabase, normalizeDatabaseUrl } from "../src/lib/db";
 
-if (!process.env.DATABASE_URL) {
+if (!hasDatabase()) {
   throw new Error("DATABASE_URL is required");
 }
 
 const adapter = new PrismaPg({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: databaseUrl() || normalizeDatabaseUrl(process.env.DATABASE_URL || ""),
 });
 const prisma = new PrismaClient({ adapter });
 
