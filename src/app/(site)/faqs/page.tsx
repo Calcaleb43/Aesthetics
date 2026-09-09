@@ -31,7 +31,7 @@ export default async function FaqsIndexPage() {
       />
 
       <section className="section">
-        <div className="mx-auto max-w-4xl px-5 lg:px-0">
+        <div className="mx-auto max-w-4xl">
           <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
             {faqs.map((faq, index) => (
               <ScrollReveal key={faq.serviceSlug} delay={index * 70}>

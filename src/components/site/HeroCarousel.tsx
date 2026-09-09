@@ -43,7 +43,7 @@ export function HeroCarousel({
 
   return (
     <section
-      className="relative min-h-[92vh] overflow-hidden bg-black text-white"
+      className="relative min-h-[92vh] min-h-[92dvh] overflow-x-clip bg-black text-white"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
       aria-roledescription="carousel"
@@ -54,7 +54,7 @@ export function HeroCarousel({
         return (
           <div
             key={`${slide.image}-${i}`}
-            className={`absolute inset-0 transition-opacity duration-[1200ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            className={`absolute inset-0 overflow-hidden transition-opacity duration-[1200ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
               isActive ? "opacity-100" : "opacity-0"
             }`}
             aria-hidden={!isActive}
@@ -75,12 +75,12 @@ export function HeroCarousel({
         );
       })}
 
-      <div className="relative z-10 mx-auto flex min-h-[92vh] max-w-7xl flex-col justify-end px-5 pb-12 pt-24 sm:pb-16 sm:pt-28 lg:px-8 lg:pb-20">
+      <div className="relative z-10 mx-auto flex min-h-[92vh] min-h-[92dvh] max-w-7xl flex-col justify-end px-5 pb-10 pt-20 sm:pb-16 sm:pt-28 lg:px-8 lg:pb-20">
         <div key={index} className="hero-slide-copy max-w-5xl">
           <p className="eyebrow !text-[var(--accent-soft)]">
             <span>{active.eyebrow}</span>
           </p>
-          <h1 className="display mt-4 text-[clamp(2.35rem,11vw,6.4rem)] leading-[0.92] text-white sm:mt-5 sm:leading-[0.9]">
+          <h1 className="display mt-4 break-words text-[clamp(2.1rem,10vw,6.4rem)] leading-[0.95] text-white sm:mt-5 sm:leading-[0.9]">
             {active.title}
           </h1>
           <div className="mt-5 h-px w-32 origin-left bg-[linear-gradient(90deg,var(--gold),transparent)] hero-slide-rule sm:mt-6 sm:w-48" />
@@ -151,7 +151,7 @@ export function HeroCarousel({
                 {i === index ? (
                   <span
                     key={`progress-${index}`}
-                    className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 origin-left bg-[var(--gold)] hero-progress"
+                    className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 origin-left bg-[var(--gold)] hero-progress sm:h-[3px]"
                     style={{
                       animationDuration: `${AUTO_MS}ms`,
                       animationPlayState: paused ? "paused" : "running",

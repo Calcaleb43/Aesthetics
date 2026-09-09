@@ -29,7 +29,7 @@ export default async function BookNowPage({
         imageAlt="Aniekanvas Aesthetics studio"
         size="compact"
       />
-      <section className="section-tight mx-auto max-w-4xl px-[clamp(1.25rem,4vw,2rem)] pb-20">
+      <section className="section-tight mx-auto max-w-4xl pb-20">
         <p className="mb-2 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]">
           Please review pre-care and{" "}
           <a href="/policies" className="underline">

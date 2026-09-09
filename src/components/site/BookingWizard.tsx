@@ -281,34 +281,47 @@ export function BookingWizard({
 
       {step === 1 && selected && (
         <div>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <button type="button" className="text-sm underline" onClick={() => setStep(0)}>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <button type="button" className="self-start text-sm underline" onClick={() => setStep(0)}>
               Change service
             </button>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="rounded-full border border-black/20 px-3 py-1 text-xs uppercase tracking-[0.12em]"
+                className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
                 onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
               >
                 Prev
               </button>
-              <p className="min-w-[9rem] text-center text-sm font-semibold">{format(month, "MMMM yyyy")}</p>
+              <p className="min-w-0 flex-1 text-center text-sm font-semibold sm:min-w-[9rem] sm:flex-none">
+                {format(month, "MMMM yyyy")}
+              </p>
               <button
                 type="button"
-                className="rounded-full border border-black/20 px-3 py-1 text-xs uppercase tracking-[0.12em]"
+                className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
                 onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
               >
                 Next
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-7 gap-2 text-center text-xs uppercase tracking-[0.12em] text-[var(--ink-soft)]">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <span key={d}>{d}</span>
+          <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] uppercase tracking-[0.08em] text-[var(--ink-soft)] sm:gap-2 sm:text-xs sm:tracking-[0.12em]">
+            {[
+              ["S", "Sun"],
+              ["M", "Mon"],
+              ["T", "Tue"],
+              ["W", "Wed"],
+              ["T", "Thu"],
+              ["F", "Fri"],
+              ["S", "Sat"],
+            ].map(([short, full]) => (
+              <span key={full}>
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{full}</span>
+              </span>
             ))}
           </div>
-          <div className="mt-2 grid grid-cols-7 gap-2">
+          <div className="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
             {Array.from({ length: daysInMonth[0].getDay() }).map((_, i) => (
               <span key={`pad-${i}`} />
             ))}
@@ -322,7 +335,7 @@ export function BookingWizard({
                   type="button"
                   disabled={past}
                   onClick={() => selectDay(day)}
-                  className={`aspect-square rounded-xl text-sm transition ${
+                  className={`aspect-square min-h-10 rounded-xl text-sm transition sm:min-h-0 ${
                     active
                       ? "bg-black text-white"
                       : past

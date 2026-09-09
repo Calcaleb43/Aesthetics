@@ -59,12 +59,12 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
 
   return (
     <header className="sticky top-0 z-50 border-b border-black/5 bg-white/85 backdrop-blur-xl">
-      <div className="mx-auto grid max-w-7xl grid-cols-[1fr_auto] items-center gap-3 px-5 py-3.5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:gap-6 lg:px-8 lg:py-4">
+      <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-5 sm:py-3.5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:gap-6 lg:px-8 lg:py-4">
         <Link
           href="/"
-          className="min-w-0 justify-self-start truncate text-[0.7rem] font-semibold tracking-[0.14em] transition hover:text-[var(--gold-deep)] sm:text-[0.78rem] sm:tracking-[0.18em]"
+          className="min-w-0 justify-self-start text-[0.65rem] font-semibold leading-snug tracking-[0.1em] transition hover:text-[var(--gold-deep)] sm:text-[0.78rem] sm:tracking-[0.18em] sm:leading-normal"
         >
-          {siteName}
+          <span className="line-clamp-2 sm:line-clamp-1">{siteName}</span>
         </Link>
 
         <nav
@@ -136,22 +136,27 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
             target="_blank"
             rel="noreferrer"
             aria-label="Instagram"
-            className="hidden text-[var(--ink-soft)] transition hover:text-[var(--gold-deep)] lg:inline-flex"
+            className="hidden h-11 w-11 items-center justify-center text-[var(--ink-soft)] transition hover:text-[var(--gold-deep)] lg:inline-flex"
           >
             <InstagramIcon />
           </a>
           {bookingExternal ? (
-            <a href={bookingUrl} target="_blank" rel="noreferrer" className="btn btn-gold !min-h-10 !px-4 !text-[0.62rem] sm:!px-5">
+            <a
+              href={bookingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="btn btn-gold !min-h-11 !px-4 !text-[0.62rem] sm:!px-5"
+            >
               Book Now
             </a>
           ) : (
-            <Link href={bookingUrl} className="btn btn-gold !min-h-10 !px-4 !text-[0.62rem] sm:!px-5">
+            <Link href={bookingUrl} className="btn btn-gold !min-h-11 !px-4 !text-[0.62rem] sm:!px-5">
               Book Now
             </Link>
           )}
           <button
             type="button"
-            className="inline-flex rounded-full border border-black/15 p-2.5 transition hover:border-[var(--gold)] hover:text-[var(--gold-deep)] lg:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/15 transition hover:border-[var(--gold)] hover:text-[var(--gold-deep)] lg:hidden"
             onClick={() => setOpen((v) => !v)}
             aria-label={open ? "Close menu" : "Open menu"}
             aria-expanded={open}
@@ -162,7 +167,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
       </div>
 
       {open && (
-        <div className="max-h-[calc(100dvh-4.5rem)] overflow-y-auto border-t border-black/5 bg-white lg:hidden">
+        <div className="max-h-[calc(100dvh-5.5rem)] overflow-y-auto border-t border-black/5 bg-white lg:hidden">
           <nav className="flex flex-col px-5 py-5" aria-label="Mobile">
             <Link
               href="/"

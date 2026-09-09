@@ -76,7 +76,7 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
           </div>
         </div>
       </div>
-      <div className="border-t border-white/10 px-5 py-5 text-center text-[0.65rem] tracking-[0.22em] uppercase text-[var(--gold)]/60">
+      <div className="border-t border-white/10 px-5 py-5 text-center text-[0.6rem] leading-5 tracking-[0.12em] uppercase text-[var(--gold)]/60 sm:text-[0.65rem] sm:tracking-[0.22em]">
         © {new Date().getFullYear()} Aniekanvas Aesthetics · Crafted with intention
       </div>
     </footer>

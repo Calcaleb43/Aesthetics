@@ -31,7 +31,7 @@ export default async function BookCancelledPage({
         image={settings.heroImage}
         size="compact"
       />
-      <section className="section-tight mx-auto max-w-2xl px-[clamp(1.25rem,4vw,2rem)] pb-20">
+      <section className="section-tight mx-auto max-w-2xl pb-20">
         <Link href="/book-now" className="btn btn-gold">
           Return to booking
         </Link>

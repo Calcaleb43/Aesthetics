@@ -39,7 +39,7 @@ export default async function BookSuccessPage({
         image={settings.heroImage}
         size="compact"
       />
-      <section className="section-tight mx-auto max-w-2xl px-[clamp(1.25rem,4vw,2rem)] pb-20">
+      <section className="section-tight mx-auto max-w-2xl pb-20">
         {summary ? (
           <div className="rounded-2xl border border-black/10 p-6 text-sm leading-7">
             <p>
