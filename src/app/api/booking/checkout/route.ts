@@ -5,7 +5,10 @@ import {
   activeHoldStatuses,
   computeAvailableSlots,
   PENDING_HOLD_MINUTES,
+  type BusyRange,
 } from "@/lib/booking/availability";
+import { announceAppointmentBooked } from "@/lib/booking/announce";
+import { upsertClient } from "@/lib/booking/clients";
 import { chargeBreakdown, formatCad } from "@/lib/booking/money";
 import { findBookableService } from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
@@ -15,6 +18,7 @@ import { getSettings } from "@/lib/content/queries";
 const schema = z.object({
   serviceId: z.string().min(1),
   startsAt: z.string().datetime(),
+  staffId: z.string().uuid().nullable().optional(),
   clientName: z.string().min(1).max(160),
   clientEmail: z.string().email().max(255),
   clientPhone: z.string().max(64).optional().nullable(),
@@ -59,52 +63,130 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid start time" }, { status: 400 });
   }
   const endsAt = addMinutes(startsAt, service.durationMinutes);
-
-  const rangeFrom = addMinutes(startsAt, -settings.bufferMinutes);
-  const rangeTo = addMinutes(endsAt, settings.bufferMinutes);
   const holds = activeHoldStatuses();
 
-  const [appointments, blocks] = await Promise.all([
-    db.appointment.findMany({
-      where: {
-        status: { in: [...holds] },
-        startsAt: { lt: rangeTo },
-        endsAt: { gt: rangeFrom },
-      },
-      select: { startsAt: true, endsAt: true },
-    }),
-    db.blockedTime.findMany({
-      where: {
-        startsAt: { lt: rangeTo },
-        endsAt: { gt: rangeFrom },
-      },
-      select: { startsAt: true, endsAt: true },
-    }),
-  ]);
-
-  const busy = [
-    ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
-    ...blocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
-  ];
-
-  const dayStart = new Date(startsAt);
-  dayStart.setUTCHours(0, 0, 0, 0);
-  const dayEnd = addMinutes(dayStart, 48 * 60);
-  const open = computeAvailableSlots({
-    timeZone: settings.timezone,
-    weeklyHours: settings.weeklyHours,
-    slotIntervalMinutes: settings.slotIntervalMinutes,
-    bufferMinutes: settings.bufferMinutes,
-    minLeadHours: settings.minLeadHours,
-    maxAdvanceDays: settings.maxAdvanceDays,
-    durationMinutes: service.durationMinutes,
-    from: dayStart,
-    to: dayEnd,
-    busy,
+  const assigned = await db.staffService.findMany({
+    where: { serviceId: service.id, admin: { active: true } },
+    include: { admin: { select: { id: true, name: true } } },
+    orderBy: { admin: { name: "asc" } },
   });
 
-  if (!open.some((s) => s.start === startsAt.toISOString())) {
-    return NextResponse.json({ error: "That time is no longer available" }, { status: 409 });
+  let staffId: string | null = parsed.data.staffId || null;
+  if (assigned.length) {
+    const candidates = staffId
+      ? assigned.filter((a) => a.adminId === staffId)
+      : assigned;
+    let chosen: string | null = null;
+    for (const row of candidates) {
+      const [appointments, blocks] = await Promise.all([
+        db.appointment.findMany({
+          where: {
+            staffId: row.adminId,
+            status: { in: [...holds] },
+            startsAt: { lt: endsAt },
+            endsAt: { gt: startsAt },
+          },
+          select: { startsAt: true, endsAt: true },
+        }),
+        db.blockedTime.findMany({
+          where: {
+            OR: [{ staffId: null }, { staffId: row.adminId }],
+            startsAt: { lt: endsAt },
+            endsAt: { gt: startsAt },
+          },
+          select: { startsAt: true, endsAt: true },
+        }),
+      ]);
+      if (!appointments.length && !blocks.length) {
+        // Still verify via slot engine for lead time / hours
+        const dayStart = new Date(startsAt);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const busy: BusyRange[] = [
+          ...(
+            await db.appointment.findMany({
+              where: {
+                staffId: row.adminId,
+                status: { in: [...holds] },
+                startsAt: { lt: addMinutes(dayStart, 48 * 60) },
+                endsAt: { gt: dayStart },
+              },
+              select: { startsAt: true, endsAt: true },
+            })
+          ).map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
+          ...(
+            await db.blockedTime.findMany({
+              where: {
+                OR: [{ staffId: null }, { staffId: row.adminId }],
+                startsAt: { lt: addMinutes(dayStart, 48 * 60) },
+                endsAt: { gt: dayStart },
+              },
+              select: { startsAt: true, endsAt: true },
+            })
+          ).map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
+        ];
+        const open = computeAvailableSlots({
+          timeZone: settings.timezone,
+          weeklyHours: settings.weeklyHours,
+          slotIntervalMinutes: settings.slotIntervalMinutes,
+          bufferMinutes: settings.bufferMinutes,
+          minLeadHours: settings.minLeadHours,
+          maxAdvanceDays: settings.maxAdvanceDays,
+          durationMinutes: service.durationMinutes,
+          from: dayStart,
+          to: addMinutes(dayStart, 48 * 60),
+          busy,
+        });
+        if (open.some((s) => s.start === startsAt.toISOString())) {
+          chosen = row.adminId;
+          break;
+        }
+      }
+    }
+    if (!chosen) {
+      return NextResponse.json({ error: "That time is no longer available" }, { status: 409 });
+    }
+    staffId = chosen;
+  } else {
+    const [appointments, blocks] = await Promise.all([
+      db.appointment.findMany({
+        where: {
+          status: { in: [...holds] },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { startsAt: true, endsAt: true },
+      }),
+      db.blockedTime.findMany({
+        where: {
+          staffId: null,
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { startsAt: true, endsAt: true },
+      }),
+    ]);
+    const dayStart = new Date(startsAt);
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const busy: BusyRange[] = [
+      ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
+      ...blocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
+    ];
+    const open = computeAvailableSlots({
+      timeZone: settings.timezone,
+      weeklyHours: settings.weeklyHours,
+      slotIntervalMinutes: settings.slotIntervalMinutes,
+      bufferMinutes: settings.bufferMinutes,
+      minLeadHours: settings.minLeadHours,
+      maxAdvanceDays: settings.maxAdvanceDays,
+      durationMinutes: service.durationMinutes,
+      from: dayStart,
+      to: addMinutes(dayStart, 48 * 60),
+      busy,
+    });
+    if (!open.some((s) => s.start === startsAt.toISOString())) {
+      return NextResponse.json({ error: "That time is no longer available" }, { status: 409 });
+    }
+    staffId = null;
   }
 
   const charge = chargeBreakdown({
@@ -114,16 +196,30 @@ export async function POST(req: Request) {
     hstRateBps: settings.hstRateBps,
   });
 
+  const instantlyConfirmed = service.paymentMode === "none" || charge.totalCents <= 0;
+
+  const clientName = parsed.data.clientName.trim();
+  const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
+  const clientPhone = parsed.data.clientPhone?.trim() || null;
+
+  const client = await upsertClient(db, {
+    email: clientEmail,
+    name: clientName,
+    phone: clientPhone,
+  });
+
   const appointment = await db.appointment.create({
     data: {
       serviceId: service.id,
+      staffId,
+      clientId: client.id,
       startsAt,
       endsAt,
-      clientName: parsed.data.clientName.trim(),
-      clientEmail: parsed.data.clientEmail.trim().toLowerCase(),
-      clientPhone: parsed.data.clientPhone?.trim() || null,
+      clientName,
+      clientEmail,
+      clientPhone,
       notes: parsed.data.notes?.trim() || "",
-      status: service.paymentMode === "none" || charge.totalCents <= 0 ? "confirmed" : "pending_payment",
+      status: instantlyConfirmed ? "confirmed" : "pending_payment",
       priceCents: service.priceCents,
       depositCents: service.depositCents,
       taxCents: charge.taxCents,
@@ -133,7 +229,8 @@ export async function POST(req: Request) {
     },
   });
 
-  if (service.paymentMode === "none" || charge.totalCents <= 0) {
+  if (instantlyConfirmed) {
+    await announceAppointmentBooked(db, appointment.id);
     return NextResponse.json({
       ok: true,
       appointmentId: appointment.id,

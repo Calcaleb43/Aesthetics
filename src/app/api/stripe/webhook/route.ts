@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
+import { announceAppointmentBooked } from "@/lib/booking/announce";
 import { getStripe } from "@/lib/booking/stripe";
 import { getPrisma, hasDatabase } from "@/lib/db";
+import { notifyAdmins } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 
@@ -40,7 +42,7 @@ export async function POST(req: Request) {
           ? session.payment_intent
           : session.payment_intent?.id || null;
 
-      await db.appointment.updateMany({
+      const result = await db.appointment.updateMany({
         where: {
           id: appointmentId,
           status: { in: ["pending_payment", "expired"] },
@@ -52,6 +54,10 @@ export async function POST(req: Request) {
           amountChargedCents: session.amount_total ?? undefined,
         },
       });
+
+      if (result.count > 0) {
+        await announceAppointmentBooked(db, appointmentId);
+      }
     }
   }
 
@@ -62,6 +68,12 @@ export async function POST(req: Request) {
       await db.appointment.updateMany({
         where: { id: appointmentId, status: "pending_payment" },
         data: { status: "expired" },
+      });
+      await notifyAdmins(db, {
+        type: "payment_pending_expired",
+        title: "Booking payment expired",
+        body: "A pending booking hold expired without payment.",
+        metadata: { appointmentId },
       });
     }
   }

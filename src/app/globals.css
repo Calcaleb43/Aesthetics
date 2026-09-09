@@ -668,6 +668,70 @@
   color: #0f0f0f;
 }
 
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  color: rgba(245, 241, 235, 0.62);
+  transition:
+    background 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f1eb;
+}
+
+.admin-nav-item-icon {
+  display: inline-flex;
+  height: 1.5rem;
+  width: 1.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 241, 235, 0.55);
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.admin-nav-item:hover .admin-nav-item-icon {
+  color: #c6a75e;
+}
+
+.admin-nav-item-active,
+.admin-nav-item-active:hover {
+  background: rgba(198, 167, 94, 0.14);
+  color: #f5f1eb;
+  box-shadow: inset 2px 0 0 #c6a75e;
+}
+
+.admin-nav-item-active .admin-nav-item-icon,
+.admin-nav-item-active:hover .admin-nav-item-icon {
+  background: rgba(198, 167, 94, 0.2);
+  color: #c6a75e;
+}
+
+.admin-nav-badge {
+  display: inline-flex;
+  min-width: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #c6a75e;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #0f0f0f;
+}
+
 .admin-chip-active {
   background: #f5f1eb;
   color: #0f0f0f;
@@ -710,6 +774,33 @@
 
 .admin-btn:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  padding: 0.65rem 1.1rem;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.admin-btn-secondary:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.admin-btn-secondary:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 

@@ -4,14 +4,14 @@ import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 
 export async function GET() {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "inquiries" });
   if ("error" in gate) return gate.error;
   const rows = await gate.db.inquiry.findMany({ orderBy: { createdAt: "desc" } });
   return NextResponse.json(rows);
 }
 
 export async function PATCH(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "inquiries" });
   if ("error" in gate) return gate.error;
   const parsed = z
     .object({
@@ -31,7 +31,7 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "inquiries" });
   if ("error" in gate) return gate.error;
   const parsed = z.object({ id: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });

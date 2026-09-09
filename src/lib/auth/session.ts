@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
+import { isAdminRole, type AdminRole } from "@/lib/auth/roles";
 
 const COOKIE = "aniekanvas_admin_session";
 
@@ -19,6 +20,7 @@ export type SessionPayload = {
   sub: string;
   email: string;
   name: string;
+  role: AdminRole;
 };
 
 export function sessionCookieOptions(token: string) {
@@ -41,7 +43,6 @@ export async function signSession(payload: SessionPayload) {
     .sign(secret());
 }
 
-/** Prefer attaching the cookie on the Route Handler response (reliable on Vercel). */
 export function attachSessionCookie(res: NextResponse, token: string) {
   const opts = sessionCookieOptions(token);
   res.cookies.set(opts.name, opts.value, {
@@ -79,10 +80,14 @@ export async function getSession(): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
+    const roleRaw = payload.role;
+    // Pre-role JWTs omit role — treat as owner so existing sessions keep CMS access until re-login
+    const role: AdminRole = isAdminRole(roleRaw) ? roleRaw : "owner";
     return {
       sub: String(payload.sub),
       email: String(payload.email),
       name: String(payload.name),
+      role,
     };
   } catch {
     return null;

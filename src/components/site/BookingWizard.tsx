@@ -21,7 +21,7 @@ type BookableService = {
   chargeTotalCents: number;
 };
 
-type Slot = { start: string; end: string };
+type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
 
 const steps = ["Service", "Date", "Time", "Details", "Pay"] as const;
 
@@ -41,12 +41,15 @@ export function BookingWizard({
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotStart, setSlotStart] = useState<string>("");
+  const [slotStaffId, setSlotStaffId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [nameDirty, setNameDirty] = useState(false);
+  const [phoneDirty, setPhoneDirty] = useState(false);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -117,6 +120,26 @@ export function BookingWizard({
     };
   }, [serviceId, selectedDay]);
 
+  useEffect(() => {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized.includes("@") || normalized.length < 5) return;
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/booking/client-lookup?email=${encodeURIComponent(normalized)}`,
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.found) return;
+        if (!nameDirty && data.name) setName(data.name);
+        if (!phoneDirty && data.phone) setPhone(data.phone);
+      } catch {
+        /* ignore lookup errors */
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [email, nameDirty, phoneDirty]);
+
   const daysInMonth = useMemo(() => {
     const start = startOfMonth(month);
     const end = endOfMonth(month);
@@ -137,6 +160,7 @@ export function BookingWizard({
     setServiceId(id);
     setSelectedDay(null);
     setSlotStart("");
+    setSlotStaffId(null);
     setStep(1);
   }
 
@@ -144,11 +168,13 @@ export function BookingWizard({
     const key = format(day, "yyyy-MM-dd");
     setSelectedDay(key);
     setSlotStart("");
+    setSlotStaffId(null);
     setStep(2);
   }
 
-  function selectSlot(start: string) {
-    setSlotStart(start);
+  function selectSlot(slot: Slot) {
+    setSlotStart(slot.start);
+    setSlotStaffId(slot.staffId ?? null);
     setStep(3);
   }
 
@@ -176,6 +202,7 @@ export function BookingWizard({
           body: JSON.stringify({
             serviceId: selected.id,
             startsAt: slotStart,
+            staffId: slotStaffId,
             clientName: name,
             clientEmail: email,
             clientPhone: phone || null,
@@ -332,17 +359,23 @@ export function BookingWizard({
                   hour: "numeric",
                   minute: "2-digit",
                 }).format(new Date(slot.start));
-                const active = slotStart === slot.start;
+                const active =
+                  slotStart === slot.start && (slotStaffId ?? null) === (slot.staffId ?? null);
                 return (
                   <button
-                    key={slot.start}
+                    key={`${slot.start}-${slot.staffId || "any"}`}
                     type="button"
-                    onClick={() => selectSlot(slot.start)}
+                    onClick={() => selectSlot(slot)}
                     className={`rounded-xl px-3 py-3 text-sm transition ${
                       active ? "bg-black text-white" : "border border-black/15 hover:border-black/40"
                     }`}
                   >
                     {label}
+                    {slot.staffName ? (
+                      <span className={`mt-1 block text-xs ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                        {slot.staffName}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -358,7 +391,15 @@ export function BookingWizard({
           </button>
           <label className="grid gap-1 text-sm">
             Full name
-            <input className="admin-input !bg-white !text-black" value={name} onChange={(e) => setName(e.target.value)} required />
+            <input
+              className="admin-input !bg-white !text-black"
+              value={name}
+              onChange={(e) => {
+                setNameDirty(true);
+                setName(e.target.value);
+              }}
+              required
+            />
           </label>
           <label className="grid gap-1 text-sm">
             Email
@@ -372,7 +413,14 @@ export function BookingWizard({
           </label>
           <label className="grid gap-1 text-sm">
             Phone
-            <input className="admin-input !bg-white !text-black" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            <input
+              className="admin-input !bg-white !text-black"
+              value={phone}
+              onChange={(e) => {
+                setPhoneDirty(true);
+                setPhone(e.target.value);
+              }}
+            />
           </label>
           <label className="grid gap-1 text-sm">
             Notes (optional)

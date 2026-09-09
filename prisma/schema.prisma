@@ -8,13 +8,34 @@ datasource db {
 }
 
 model Admin {
-  id           String   @id @default(uuid()) @db.Uuid
-  email        String   @unique @db.VarChar(255)
-  name         String   @db.VarChar(120)
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique @db.VarChar(255)
+  name         String         @db.VarChar(120)
+  passwordHash String         @map("password_hash")
+  role         String         @default("owner") @db.VarChar(20)
+  active       Boolean        @default(true)
+  color        String         @default("#c6a75e") @db.VarChar(32)
+  phone        String?        @db.VarChar(64)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  services     StaffService[]
+  appointments Appointment[]  @relation("AppointmentStaff")
+  notifications Notification[]
+  blockedTimes BlockedTime[]
 
   @@map("admins")
+}
+
+model StaffService {
+  id        String   @id @default(uuid()) @db.Uuid
+  adminId   String   @map("admin_id") @db.Uuid
+  serviceId String   @map("service_id") @db.Uuid
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([adminId, serviceId])
+  @@index([serviceId])
+  @@map("staff_services")
 }
 
 model SiteSettings {
@@ -64,26 +85,27 @@ model Page {
 }
 
 model Service {
-  id              String        @id @default(uuid()) @db.Uuid
-  slug            String        @unique @db.VarChar(160)
-  title           String        @db.VarChar(200)
-  shortTitle      String        @map("short_title") @db.VarChar(200)
+  id              String         @id @default(uuid()) @db.Uuid
+  slug            String         @unique @db.VarChar(160)
+  title           String         @db.VarChar(200)
+  shortTitle      String         @map("short_title") @db.VarChar(200)
   tagline         String
   summary         String
-  content         String        @default("")
-  coverImage      String?       @map("cover_image")
-  bookingUrl      String?       @map("booking_url")
-  sortOrder       Int           @default(0) @map("sort_order")
-  status          String        @default("draft") @db.VarChar(20)
-  featured        Boolean       @default(true)
-  durationMinutes Int           @default(60) @map("duration_minutes")
-  priceCents      Int           @default(0) @map("price_cents")
-  depositCents    Int?          @map("deposit_cents")
-  paymentMode     String        @default("deposit") @map("payment_mode") @db.VarChar(20)
-  bookable        Boolean       @default(true)
-  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  content         String         @default("")
+  coverImage      String?        @map("cover_image")
+  bookingUrl      String?        @map("booking_url")
+  sortOrder       Int            @default(0) @map("sort_order")
+  status          String         @default("draft") @db.VarChar(20)
+  featured        Boolean        @default(true)
+  durationMinutes Int            @default(60) @map("duration_minutes")
+  priceCents      Int            @default(0) @map("price_cents")
+  depositCents    Int?           @map("deposit_cents")
+  paymentMode     String         @default("deposit") @map("payment_mode") @db.VarChar(20)
+  bookable        Boolean        @default(true)
+  updatedAt       DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   appointments    Appointment[]
+  staff           StaffService[]
 
   @@map("services")
 }
@@ -135,30 +157,57 @@ model Inquiry {
   @@map("inquiries")
 }
 
+model Client {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique @db.VarChar(255)
+  name         String        @db.VarChar(160)
+  phone        String?       @db.VarChar(64)
+  notes        String        @default("")
+  banned       Boolean       @default(false)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  appointments Appointment[]
+
+  @@index([name])
+  @@map("clients")
+}
+
 model Appointment {
-  id                     String   @id @default(uuid()) @db.Uuid
-  serviceId              String   @map("service_id") @db.Uuid
-  service                Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  startsAt               DateTime @map("starts_at") @db.Timestamptz(6)
-  endsAt                 DateTime @map("ends_at") @db.Timestamptz(6)
-  clientName             String   @map("client_name") @db.VarChar(160)
-  clientEmail            String   @map("client_email") @db.VarChar(255)
-  clientPhone            String?  @map("client_phone") @db.VarChar(64)
-  status                 String   @default("pending_payment") @db.VarChar(32)
-  priceCents             Int      @map("price_cents")
-  depositCents           Int?     @map("deposit_cents")
-  taxCents               Int      @default(0) @map("tax_cents")
-  amountChargedCents     Int      @default(0) @map("amount_charged_cents")
-  paymentMode            String   @map("payment_mode") @db.VarChar(20)
-  stripeSessionId        String?  @unique @map("stripe_session_id") @db.VarChar(255)
-  stripePaymentIntentId  String?  @map("stripe_payment_intent_id") @db.VarChar(255)
-  notes                  String   @default("")
+  id                     String    @id @default(uuid()) @db.Uuid
+  serviceId              String    @map("service_id") @db.Uuid
+  service                Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  staffId                String?   @map("staff_id") @db.Uuid
+  staff                  Admin?    @relation("AppointmentStaff", fields: [staffId], references: [id], onDelete: SetNull)
+  clientId               String?   @map("client_id") @db.Uuid
+  client                 Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  seriesId               String?   @map("series_id") @db.Uuid
+  externalId             String?   @unique @map("external_id") @db.VarChar(64)
+  serviceLabel           String?   @map("service_label") @db.VarChar(255)
+  startsAt               DateTime  @map("starts_at") @db.Timestamptz(6)
+  endsAt                 DateTime  @map("ends_at") @db.Timestamptz(6)
+  clientName             String    @map("client_name") @db.VarChar(160)
+  clientEmail            String    @map("client_email") @db.VarChar(255)
+  clientPhone            String?   @map("client_phone") @db.VarChar(64)
+  status                 String    @default("pending_payment") @db.VarChar(32)
+  priceCents             Int       @map("price_cents")
+  depositCents           Int?      @map("deposit_cents")
+  taxCents               Int       @default(0) @map("tax_cents")
+  amountChargedCents     Int       @default(0) @map("amount_charged_cents")
+  paymentMode            String    @map("payment_mode") @db.VarChar(20)
+  stripeSessionId        String?   @unique @map("stripe_session_id") @db.VarChar(255)
+  stripePaymentIntentId  String?   @map("stripe_payment_intent_id") @db.VarChar(255)
+  notes                  String    @default("")
   policyAcceptedAt       DateTime? @map("policy_accepted_at") @db.Timestamptz(6)
-  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  reminderSentAt         DateTime? @map("reminder_sent_at") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([startsAt, endsAt])
   @@index([status])
+  @@index([staffId, startsAt])
+  @@index([clientId, startsAt])
+  @@index([seriesId])
+  @@index([clientEmail])
   @@map("appointments")
 }
 
@@ -167,8 +216,28 @@ model BlockedTime {
   startsAt  DateTime @map("starts_at") @db.Timestamptz(6)
   endsAt    DateTime @map("ends_at") @db.Timestamptz(6)
   reason    String   @default("") @db.VarChar(200)
+  staffId   String?  @map("staff_id") @db.Uuid
+  staff     Admin?   @relation(fields: [staffId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([startsAt, endsAt])
+  @@index([staffId])
   @@map("blocked_times")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminId   String    @map("admin_id") @db.Uuid
+  admin     Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  type      String    @db.VarChar(64)
+  title     String    @db.VarChar(200)
+  body      String    @default("")
+  href      String?   @db.VarChar(255)
+  metadata  Json      @default("{}")
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([adminId, readAt])
+  @@index([createdAt])
+  @@map("notifications")
 }

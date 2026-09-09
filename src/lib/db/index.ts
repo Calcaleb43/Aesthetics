@@ -48,20 +48,41 @@ export function hasDatabase() {
   );
 }
 
+function createPrismaClient(connectionString: string) {
+  return new PrismaClient({
+    adapter: new PrismaPg({ connectionString }),
+  });
+}
+
+/** True when the cached client matches the current generated schema. */
+function clientLooksCurrent(client: PrismaClient) {
+  const c = client as {
+    notification?: { count?: unknown };
+    client?: { count?: unknown };
+  };
+  return (
+    typeof c.notification?.count === "function" && typeof c.client?.count === "function"
+  );
+}
+
 export function getPrisma() {
   const connectionString = databaseUrl();
   if (!connectionString) {
     throw new Error("DATABASE_URL (or POSTGRES_URL) is not set");
   }
 
-  if (!globalForPrisma.prisma) {
-    const adapter = new PrismaPg({
-      connectionString,
-    });
-    globalForPrisma.prisma = new PrismaClient({ adapter });
+  const cached = globalForPrisma.prisma;
+  if (cached && clientLooksCurrent(cached)) {
+    return cached;
   }
 
-  return globalForPrisma.prisma;
+  if (cached) {
+    void cached.$disconnect().catch(() => undefined);
+  }
+
+  const client = createPrismaClient(connectionString);
+  globalForPrisma.prisma = client;
+  return client;
 }
 
 export type Database = PrismaClient;

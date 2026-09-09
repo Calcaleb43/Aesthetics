@@ -1,11 +1,15 @@
 import Link from "next/link";
+import { NotificationBell } from "@/components/admin/NotificationBell";
+import type { AdminRole } from "@/lib/auth/roles";
 
 export function AdminHeader({
   email,
+  role,
   hasDatabase,
   inquiryUnread = 0,
 }: {
   email: string;
+  role: AdminRole;
   hasDatabase: boolean;
   inquiryUnread?: number;
 }) {
@@ -47,6 +51,7 @@ export function AdminHeader({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <NotificationBell />
           <Link
             href="/"
             target="_blank"
@@ -58,6 +63,7 @@ export function AdminHeader({
           <div className="hidden text-right sm:block">
             <p className="text-[0.6rem] uppercase tracking-[0.14em] text-white/35">Signed in</p>
             <p className="max-w-[180px] truncate text-xs text-white/75">{email}</p>
+            <p className="text-[0.6rem] uppercase tracking-[0.12em] text-[#c6a75e]">{role}</p>
           </div>
           <form action="/api/auth/logout" method="post">
             <button

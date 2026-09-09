@@ -21,8 +21,20 @@ async function main() {
 
   await prisma.admin.upsert({
     where: { email },
-    create: { email, name: "Admin", passwordHash },
-    update: { passwordHash, name: "Admin" },
+    create: {
+      email,
+      name: "Admin",
+      passwordHash,
+      role: "owner",
+      active: true,
+      color: "#c6a75e",
+    },
+    update: {
+      passwordHash,
+      name: "Admin",
+      role: "owner",
+      active: true,
+    },
   });
 
   await prisma.siteSettings.upsert({
@@ -162,6 +174,10 @@ async function main() {
       },
     });
   }
+
+  const { backfillClientsFromAppointments } = await import("../src/lib/booking/clients");
+  const backfill = await backfillClientsFromAppointments(prisma);
+  console.log(`Clients backfill: ${backfill.clients} clients, ${backfill.linked} appointments linked`);
 
   console.log("Seed complete");
   console.log(`Admin login: ${email} / ${password}`);

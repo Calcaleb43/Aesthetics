@@ -4,7 +4,7 @@ import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 
 export async function GET() {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const rows = await gate.db.mediaAsset.findMany({ orderBy: { createdAt: "desc" } });
   return NextResponse.json(rows);
@@ -17,7 +17,7 @@ const mediaSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const parsed = mediaSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid URL or fields" }, { status: 400 });
@@ -35,7 +35,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const parsed = z.object({ id: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });

@@ -14,7 +14,7 @@ const schema = z.object({
 });
 
 export async function PUT(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
@@ -39,7 +39,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const parsed = z.object({ slug: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
@@ -50,7 +50,7 @@ export async function DELETE(req: Request) {
 }
 
 export async function GET() {
-  const gate = await requireAdminApi();
+  const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
   const rows = await gate.db.page.findMany({ orderBy: { title: "asc" } });
   return NextResponse.json(rows);

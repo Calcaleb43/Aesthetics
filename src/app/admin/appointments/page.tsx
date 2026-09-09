@@ -1,15 +1,22 @@
+import { Suspense } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
-import { AppointmentsClient } from "@/components/admin/AppointmentsClient";
-import { BlockedTimesClient } from "@/components/admin/BlockedTimesClient";
+import { AdminCalendar } from "@/components/admin/calendar/AdminCalendar";
+import { getAdminServices, getSettings } from "@/lib/content/queries";
 
-export default function AdminAppointmentsPage() {
+export default async function AdminAppointmentsPage() {
+  const [services, settings] = await Promise.all([getAdminServices(), getSettings()]);
+  const initialServices = services
+    .filter((s) => s.id)
+    .map((s) => ({ id: s.id as string, title: s.title, slug: s.slug }));
+
   return (
     <AdminShell
       title="Appointments"
-      description="Confirmed bookings, payment holds, and studio blocked times."
+      description="Calendar, bookings, and studio blocked times."
     >
-      <AppointmentsClient />
-      <BlockedTimesClient />
+      <Suspense fallback={<p className="text-sm text-white/50">Loading calendar…</p>}>
+        <AdminCalendar initialServices={initialServices} timezone={settings.timezone} />
+      </Suspense>
     </AdminShell>
   );
 }

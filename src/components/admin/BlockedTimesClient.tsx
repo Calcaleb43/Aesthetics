@@ -12,9 +12,14 @@ export function BlockedTimesClient() {
   const [status, setStatus] = useState("");
 
   async function load() {
-    const res = await fetch("/api/admin/blocked-times");
-    const data = await res.json();
-    setBlocks(data.blocks || []);
+    try {
+      const res = await fetch("/api/admin/blocked-times");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setBlocks(data.blocks || []);
+    } catch {
+      /* ignore */
+    }
   }
 
   useEffect(() => {
