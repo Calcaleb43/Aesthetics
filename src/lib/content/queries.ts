@@ -327,7 +327,7 @@ export async function getInquiryStats() {
     const [total, unread, recent] = await Promise.all([
       db.inquiry.count(),
       db.inquiry.count({ where: { status: "new" } }),
-      db.inquiry.findMany({ orderBy: { createdAt: "desc" }, take: 5 }),
+      db.inquiry.findMany({ orderBy: { createdAt: "desc" }, take: 8 }),
     ]);
     return {
       total,
@@ -356,3 +356,91 @@ export type InquiryRow = {
   createdAt: string;
   message: string;
 };
+
+export type DashboardAppointment = {
+  id: string;
+  status: string;
+  startsAt: string;
+  endsAt: string;
+  clientName: string;
+  clientEmail: string;
+  serviceTitle: string;
+  staffName: string | null;
+};
+
+export async function getAppointmentDashboard() {
+  if (!hasDatabase()) {
+    return {
+      upcomingCount: 0,
+      todayCount: 0,
+      pendingPayment: 0,
+      confirmedToday: 0,
+      upcoming: [] as DashboardAppointment[],
+    };
+  }
+  try {
+    const db = getPrisma();
+    const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(now);
+    endOfToday.setHours(23, 59, 59, 999);
+    const horizon = new Date(now);
+    horizon.setDate(horizon.getDate() + 14);
+
+    const activeStatuses = ["confirmed", "pending_payment"] as const;
+
+    const [upcomingCount, todayCount, pendingPayment, upcoming] = await Promise.all([
+      db.appointment.count({
+        where: {
+          startsAt: { gte: now },
+          status: { in: [...activeStatuses] },
+        },
+      }),
+      db.appointment.count({
+        where: {
+          startsAt: { gte: startOfToday, lte: endOfToday },
+          status: { in: [...activeStatuses, "completed"] },
+        },
+      }),
+      db.appointment.count({ where: { status: "pending_payment" } }),
+      db.appointment.findMany({
+        where: {
+          startsAt: { gte: now, lte: horizon },
+          status: { in: [...activeStatuses] },
+        },
+        orderBy: { startsAt: "asc" },
+        take: 8,
+        include: {
+          service: { select: { title: true } },
+          staff: { select: { name: true } },
+        },
+      }),
+    ]);
+
+    return {
+      upcomingCount,
+      todayCount,
+      pendingPayment,
+      confirmedToday: todayCount,
+      upcoming: upcoming.map((row) => ({
+        id: row.id,
+        status: row.status,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+        clientName: row.clientName,
+        clientEmail: row.clientEmail,
+        serviceTitle: row.serviceLabel || row.service.title,
+        staffName: row.staff?.name || null,
+      })),
+    };
+  } catch {
+    return {
+      upcomingCount: 0,
+      todayCount: 0,
+      pendingPayment: 0,
+      confirmedToday: 0,
+      upcoming: [] as DashboardAppointment[],
+    };
+  }
+}
