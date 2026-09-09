@@ -15,7 +15,7 @@ export function AdminHeader({
 }) {
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0f0f0f]/90 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1440px] items-center gap-4 px-5 py-3.5 lg:px-8">
+      <div className="flex w-full items-center gap-4 px-5 py-3.5 lg:px-8">
         <div className="min-w-0 flex-1">
           <Link href="/admin" className="group inline-flex min-w-0 flex-col">
             <span className="text-[0.62rem] uppercase tracking-[0.22em] text-[#c6a75e]">Aniekanvas</span>

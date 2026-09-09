@@ -31,12 +31,12 @@ export async function AdminShell({
         inquiryUnread={stats.unread}
       />
 
-      <div className="mx-auto grid max-w-[1440px] lg:grid-cols-[260px_1fr]">
+      <div className="grid w-full lg:grid-cols-[260px_1fr]">
         <aside className="border-b border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent px-4 py-4 lg:sticky lg:top-[57px] lg:h-[calc(100vh-57px)] lg:overflow-y-auto lg:border-b-0 lg:border-r lg:border-white/10 lg:px-4 lg:py-6">
           <AdminNav inquiryUnread={stats.unread} role={session.role} email={session.email} />
         </aside>
 
-        <section className="p-6 lg:p-10">
+        <section className="min-w-0 p-6 lg:p-8 xl:p-10">
           <div className="admin-page-header mb-8 flex flex-wrap items-start justify-between gap-4 border-b border-white/10 pb-6">
             <div>
               <p className="text-[0.65rem] uppercase tracking-[0.2em] text-[#c6a75e]">CMS</p>
