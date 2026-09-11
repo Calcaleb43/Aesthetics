@@ -53,6 +53,7 @@ export function BookingWizard({
   const [loadingServices, setLoadingServices] = useState(true);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -328,6 +329,10 @@ export function BookingWizard({
     return days;
   }, [month]);
 
+  function toggleCategory(id: string) {
+    setExpandedCategoryIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
   function toggleService(id: string) {
     setSelectedServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setSelectedDay(null);
@@ -483,46 +488,73 @@ export function BookingWizard({
           <p className="mb-4 text-sm text-[var(--ink-soft)]">
             Select one or more services from any category for this visit.
           </p>
-          <div className="grid gap-8">
-            {categories.map((c) => (
-              <div key={c.id}>
-                <h3 className="display text-xl md:text-2xl">{c.title}</h3>
-                <div className="mt-3 grid gap-3">
-                  {c.services.map((s) => {
-                    const active = selectedServiceIds.includes(s.id);
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => toggleService(s.id)}
-                        className={`rounded-2xl border px-5 py-4 text-left transition ${
-                          active ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold tracking-wide">{s.title}</p>
-                            <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                              {s.durationMinutes} min · {s.priceLabel}
-                              {s.paymentMode === "deposit"
-                                ? ` · deposit ${s.chargeLabel}`
-                                : s.paymentMode === "full"
-                                  ? ` · pay ${s.chargeLabel}`
-                                  : " · no online payment"}
-                            </p>
-                          </div>
-                          <span
-                            className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}
+          <div className="grid gap-3">
+            {categories.map((c) => {
+              const open = expandedCategoryIds.includes(c.id);
+              const selectedInCategory = c.services.filter((s) => selectedServiceIds.includes(s.id)).length;
+              return (
+                <div key={c.id} className="overflow-hidden rounded-2xl border border-black/10">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => toggleCategory(c.id)}
+                    className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-black/[0.03]"
+                  >
+                    <div className="min-w-0">
+                      <h3 className="display text-xl md:text-2xl">{c.title}</h3>
+                      <p className="mt-1 text-sm text-[var(--ink-soft)]">
+                        {c.services.length} service{c.services.length === 1 ? "" : "s"}
+                        {selectedInCategory
+                          ? ` · ${selectedInCategory} selected`
+                          : ""}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 text-lg text-black/50 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+                      aria-hidden
+                    >
+                      ▾
+                    </span>
+                  </button>
+                  {open ? (
+                    <div className="grid gap-3 border-t border-black/10 px-4 py-4 sm:px-5">
+                      {c.services.map((s) => {
+                        const active = selectedServiceIds.includes(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => toggleService(s.id)}
+                            className={`rounded-2xl border px-5 py-4 text-left transition ${
+                              active ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                            }`}
                           >
-                            {active ? "Selected" : "Select"}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold tracking-wide">{s.title}</p>
+                                <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                                  {s.durationMinutes} min · {s.priceLabel}
+                                  {s.paymentMode === "deposit"
+                                    ? ` · deposit ${s.chargeLabel}`
+                                    : s.paymentMode === "full"
+                                      ? ` · pay ${s.chargeLabel}`
+                                      : " · no online payment"}
+                                </p>
+                              </div>
+                              <span
+                                className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}
+                              >
+                                {active ? "Selected" : "Select"}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {selectedServices.length ? (
             <p className="mt-4 text-sm text-[var(--ink-soft)]">
