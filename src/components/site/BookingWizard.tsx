@@ -35,7 +35,9 @@ type BookableAddon = BookableService & {
 
 type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
 
-const baseSteps = ["Services", "Add-ons", "Date", "Time", "Details", "Pay"] as const;
+type StepName = "Services" | "Add-ons" | "Date" | "Time" | "Details" | "Review" | "Pay";
+
+const ALL_STEPS: StepName[] = ["Services", "Add-ons", "Date", "Time", "Details", "Review", "Pay"];
 
 export function BookingWizard({
   initialSlug,
@@ -58,6 +60,7 @@ export function BookingWizard({
   const [slotStart, setSlotStart] = useState<string>("");
   const [slotStaffId, setSlotStaffId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  const [furthest, setFurthest] = useState(0);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -68,7 +71,10 @@ export function BookingWizard({
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const allServices = useMemo(() => categories.flatMap((c) => c.services.map((s) => ({ ...s, categoryId: c.id, categoryTitle: c.title }))), [categories]);
+  const allServices = useMemo(
+    () => categories.flatMap((c) => c.services.map((s) => ({ ...s, categoryId: c.id, categoryTitle: c.title }))),
+    [categories],
+  );
 
   const selectedServices = useMemo(
     () => allServices.filter((s) => selectedServiceIds.includes(s.id)),
@@ -95,11 +101,10 @@ export function BookingWizard({
 
   const showAddonsStep = eligibleAddons.length > 0;
   const steps = useMemo(
-    () => (showAddonsStep ? [...baseSteps] : baseSteps.filter((s) => s !== "Add-ons")),
+    () => (showAddonsStep ? ALL_STEPS : ALL_STEPS.filter((s) => s !== "Add-ons")),
     [showAddonsStep],
   );
 
-  /** Map UI step index → logical step name */
   const stepName = steps[step] || "Services";
 
   const totals = useMemo(() => {
@@ -128,6 +133,89 @@ export function BookingWizard({
       titles: lines.map((s) => s.title).join(", "),
     };
   }, [selectedServices, selectedAddons, hstRateBps]);
+
+  const appointmentLabel = useMemo(() => {
+    if (!slotStart) return "";
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(new Date(slotStart));
+  }, [slotStart, timezone]);
+
+  function setStepIndex(next: number) {
+    const clamped = Math.max(0, Math.min(next, steps.length - 1));
+    setStep(clamped);
+    setFurthest((f) => Math.max(f, clamped));
+    setError("");
+  }
+
+  function goToStepName(name: StepName) {
+    const idx = steps.indexOf(name);
+    if (idx >= 0) setStepIndex(idx);
+  }
+
+  function goBack() {
+    if (step > 0) setStepIndex(step - 1);
+  }
+
+  function goForward() {
+    if (step >= steps.length - 1) return;
+    if (!canLeaveStep(stepName)) return;
+    setStepIndex(step + 1);
+  }
+
+  function canLeaveStep(name: StepName) {
+    if (name === "Services" && !selectedServiceIds.length) {
+      setError("Select at least one service.");
+      return false;
+    }
+    if (name === "Date" && !selectedDay) {
+      setError("Pick a date to continue.");
+      return false;
+    }
+    if (name === "Time" && !slotStart) {
+      setError("Pick a time to continue.");
+      return false;
+    }
+    if (name === "Details") {
+      if (!name.trim() || !email.trim()) {
+        setError("Name and email are required.");
+        return false;
+      }
+      if (!policyAccepted) {
+        setError("Please agree to the studio policies before continuing.");
+        return false;
+      }
+    }
+    if ((name === "Review" || name === "Pay") && (!selectedServiceIds.length || !slotStart)) {
+      setError("Complete earlier steps first.");
+      return false;
+    }
+    setError("");
+    return true;
+  }
+
+  function canJumpTo(index: number) {
+    if (index === step) return false;
+    if (index < step) return true;
+    if (index > furthest) return false;
+    // Must still satisfy prerequisites for the target
+    const target = steps[index];
+    if (target === "Add-ons" || target === "Date" || target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
+      if (!selectedServiceIds.length) return false;
+    }
+    if (target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
+      if (!selectedDay) return false;
+    }
+    if (target === "Details" || target === "Review" || target === "Pay") {
+      if (!slotStart) return false;
+    }
+    if (target === "Review" || target === "Pay") {
+      if (!name.trim() || !email.trim() || !policyAccepted) return false;
+    }
+    return true;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -216,16 +304,21 @@ export function BookingWizard({
         if (!nameDirty && data.name) setName(data.name);
         if (!phoneDirty && data.phone) setPhone(data.phone);
       } catch {
-        /* ignore lookup errors */
+        /* ignore */
       }
     }, 400);
     return () => window.clearTimeout(t);
   }, [email, nameDirty, phoneDirty]);
 
-  // Drop addons that are no longer eligible when services change
   useEffect(() => {
     setSelectedAddonIds((prev) => prev.filter((id) => eligibleAddons.some((a) => a.id === id)));
   }, [eligibleAddons]);
+
+  // Keep step index valid if Add-ons disappears from the flow
+  useEffect(() => {
+    if (step >= steps.length) setStepIndex(steps.length - 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steps.length]);
 
   const daysInMonth = useMemo(() => {
     const start = startOfMonth(month);
@@ -235,16 +328,12 @@ export function BookingWizard({
     return days;
   }, [month]);
 
-  function goToStepName(name: (typeof baseSteps)[number]) {
-    const idx = steps.indexOf(name as (typeof steps)[number]);
-    if (idx >= 0) setStep(idx);
-  }
-
   function toggleService(id: string) {
     setSelectedServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
     setSelectedDay(null);
     setSlotStart("");
     setSlotStaffId(null);
+    setFurthest(0);
   }
 
   function toggleAddon(id: string) {
@@ -252,21 +341,7 @@ export function BookingWizard({
     setSelectedDay(null);
     setSlotStart("");
     setSlotStaffId(null);
-  }
-
-  function continueFromServices() {
-    if (!selectedServiceIds.length) {
-      setError("Select at least one service.");
-      return;
-    }
-    setError("");
-    if (showAddonsStep) goToStepName("Add-ons");
-    else goToStepName("Date");
-  }
-
-  function continueFromAddons() {
-    setError("");
-    goToStepName("Date");
+    setFurthest((f) => Math.min(f, steps.indexOf("Add-ons")));
   }
 
   function selectDay(day: Date) {
@@ -274,30 +349,21 @@ export function BookingWizard({
     setSelectedDay(key);
     setSlotStart("");
     setSlotStaffId(null);
-    goToStepName("Time");
+    setError("");
+    const timeIdx = steps.indexOf("Time");
+    setStepIndex(timeIdx);
   }
 
   function selectSlot(slot: Slot) {
     setSlotStart(slot.start);
     setSlotStaffId(slot.staffId ?? null);
-    goToStepName("Details");
-  }
-
-  function goPay() {
     setError("");
-    if (!name.trim() || !email.trim()) {
-      setError("Name and email are required.");
-      return;
-    }
-    if (!policyAccepted) {
-      setError("Please agree to the studio policies before booking.");
-      return;
-    }
-    goToStepName("Pay");
+    setStepIndex(steps.indexOf("Details"));
   }
 
   function submitCheckout() {
     if (!selectedServiceIds.length || !slotStart) return;
+    if (!canLeaveStep("Review") && stepName !== "Pay") return;
     setError("");
     startTransition(async () => {
       try {
@@ -328,6 +394,37 @@ export function BookingWizard({
     });
   }
 
+  function NavFooter({
+    continueLabel = "Continue",
+    onContinue,
+    continueDisabled,
+  }: {
+    continueLabel?: string;
+    onContinue?: () => void;
+    continueDisabled?: boolean;
+  }) {
+    return (
+      <div className="mt-8 flex flex-wrap items-center gap-3 border-t border-black/10 pt-6">
+        {step > 0 ? (
+          <button type="button" className="btn" onClick={goBack}>
+            Back
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="btn btn-gold"
+          disabled={continueDisabled}
+          onClick={() => {
+            if (onContinue) onContinue();
+            else goForward();
+          }}
+        >
+          {continueLabel}
+        </button>
+      </div>
+    );
+  }
+
   if (loadingServices) {
     return <p className="mt-10 text-sm text-[var(--ink-soft)]">Loading booking…</p>;
   }
@@ -348,14 +445,35 @@ export function BookingWizard({
   return (
     <div className="mt-10">
       <ol className="mb-8 flex flex-wrap gap-2 text-[0.65rem] uppercase tracking-[0.16em] text-[var(--ink-soft)]">
-        {steps.map((label, i) => (
-          <li
-            key={label}
-            className={`rounded-full px-3 py-1 ${i === step ? "bg-black text-white" : i < step ? "bg-black/10 text-black" : "bg-black/5"}`}
-          >
-            {label}
-          </li>
-        ))}
+        {steps.map((label, i) => {
+          const active = i === step;
+          const reachable = i === step || canJumpTo(i) || i < step;
+          return (
+            <li key={label}>
+              <button
+                type="button"
+                disabled={!reachable}
+                onClick={() => {
+                  if (i === step) return;
+                  if (i < step) {
+                    setStepIndex(i);
+                    return;
+                  }
+                  if (canJumpTo(i)) setStepIndex(i);
+                }}
+                className={`rounded-full px-3 py-1 transition ${
+                  active
+                    ? "bg-black text-white"
+                    : reachable
+                      ? "bg-black/10 text-black hover:bg-black/20"
+                      : "cursor-not-allowed bg-black/5 text-black/35"
+                }`}
+              >
+                {label}
+              </button>
+            </li>
+          );
+        })}
       </ol>
 
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
@@ -408,20 +526,16 @@ export function BookingWizard({
           </div>
           {selectedServices.length ? (
             <p className="mt-4 text-sm text-[var(--ink-soft)]">
-              {selectedServices.length} selected · {totals.durationMinutes} min · from {formatCad(totals.priceCents)}
+              {selectedServices.length} selected · {selectedServices.reduce((n, s) => n + s.durationMinutes, 0)} min ·
+              from {formatCad(selectedServices.reduce((n, s) => n + s.priceCents, 0))}
             </p>
           ) : null}
-          <button type="button" className="btn btn-gold mt-6" onClick={continueFromServices}>
-            Continue
-          </button>
+          <NavFooter continueLabel="Continue" onContinue={goForward} continueDisabled={!selectedServiceIds.length} />
         </div>
       )}
 
       {stepName === "Add-ons" && (
         <div>
-          <button type="button" className="mb-4 text-sm underline" onClick={() => goToStepName("Services")}>
-            Change services
-          </button>
           <p className="mb-4 text-sm text-[var(--ink-soft)]">Optional add-ons for your visit. You can skip this step.</p>
           <div className="grid gap-3">
             {eligibleAddons.map((a) => {
@@ -439,7 +553,9 @@ export function BookingWizard({
                     <div>
                       <p className="font-semibold tracking-wide">{a.title}</p>
                       {a.summary ? (
-                        <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>{a.summary}</p>
+                        <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                          {a.summary}
+                        </p>
                       ) : null}
                       <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
                         {a.durationMinutes > 0 ? `${a.durationMinutes} min · ` : ""}
@@ -454,46 +570,31 @@ export function BookingWizard({
               );
             })}
           </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button type="button" className="btn btn-gold" onClick={continueFromAddons}>
-              Continue
-            </button>
-            <button type="button" className="btn" onClick={continueFromAddons}>
-              Skip add-ons
-            </button>
-          </div>
+          <NavFooter
+            continueLabel={selectedAddonIds.length ? "Continue" : "Skip add-ons"}
+            onContinue={goForward}
+          />
         </div>
       )}
 
-      {stepName === "Date" && selectedServices.length > 0 && (
+      {stepName === "Date" && (
         <div>
-          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-4 flex items-center justify-end gap-2">
             <button
               type="button"
-              className="self-start text-sm underline"
-              onClick={() => (showAddonsStep ? goToStepName("Add-ons") : goToStepName("Services"))}
+              className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
+              onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
             >
-              {showAddonsStep ? "Change add-ons" : "Change services"}
+              Prev
             </button>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-                onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
-              >
-                Prev
-              </button>
-              <p className="min-w-0 flex-1 text-center text-sm font-semibold sm:min-w-[9rem] sm:flex-none">
-                {format(month, "MMMM yyyy")}
-              </p>
-              <button
-                type="button"
-                className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-                onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
-              >
-                Next
-              </button>
-            </div>
+            <p className="min-w-[9rem] text-center text-sm font-semibold">{format(month, "MMMM yyyy")}</p>
+            <button
+              type="button"
+              className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
+              onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
+            >
+              Next
+            </button>
           </div>
           <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] uppercase tracking-[0.08em] text-[var(--ink-soft)] sm:gap-2 sm:text-xs sm:tracking-[0.12em]">
             {[
@@ -539,14 +640,22 @@ export function BookingWizard({
             })}
           </div>
           <p className="mt-4 text-xs text-[var(--ink-soft)]">Times shown in {timezone.replace(/_/g, " ")}.</p>
+          <NavFooter
+            continueLabel="Continue"
+            continueDisabled={!selectedDay}
+            onContinue={() => {
+              if (!selectedDay) {
+                setError("Pick a date to continue.");
+                return;
+              }
+              goForward();
+            }}
+          />
         </div>
       )}
 
-      {stepName === "Time" && selectedServices.length > 0 && selectedDay && (
+      {stepName === "Time" && selectedDay && (
         <div>
-          <button type="button" className="mb-4 text-sm underline" onClick={() => goToStepName("Date")}>
-            Change date
-          </button>
           <p className="mb-4 text-sm text-[var(--ink-soft)]">
             {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")} · {totals.titles} · {totals.durationMinutes}{" "}
             min
@@ -584,14 +693,22 @@ export function BookingWizard({
               })}
             </div>
           )}
+          <NavFooter
+            continueLabel="Continue"
+            continueDisabled={!slotStart}
+            onContinue={() => {
+              if (!slotStart) {
+                setError("Pick a time to continue.");
+                return;
+              }
+              goForward();
+            }}
+          />
         </div>
       )}
 
-      {stepName === "Details" && selectedServices.length > 0 && slotStart && (
+      {stepName === "Details" && (
         <div className="grid max-w-xl gap-4">
-          <button type="button" className="w-fit text-sm underline" onClick={() => goToStepName("Time")}>
-            Change time
-          </button>
           <label className="grid gap-1 text-sm">
             Full name
             <input
@@ -650,71 +767,159 @@ export function BookingWizard({
               the appointment.
             </span>
           </label>
-          <button type="button" className="btn btn-gold w-fit" onClick={goPay}>
-            Review &amp; continue
-          </button>
+          <NavFooter continueLabel="Review booking" onContinue={goForward} />
+        </div>
+      )}
+
+      {stepName === "Review" && selectedServices.length > 0 && slotStart && (
+        <div className="max-w-2xl">
+          <h3 className="display text-2xl md:text-3xl">Review your booking</h3>
+          <p className="mt-2 text-sm text-[var(--ink-soft)]">
+            Confirm services, add-ons, and details before payment.
+          </p>
+
+          <div className="mt-6 space-y-6">
+            <section className="rounded-2xl border border-black/10 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Services</h4>
+                <button type="button" className="text-sm underline" onClick={() => goToStepName("Services")}>
+                  Edit
+                </button>
+              </div>
+              <ul className="mt-3 space-y-2 text-sm">
+                {selectedServices.map((s) => (
+                  <li key={s.id} className="flex items-start justify-between gap-3">
+                    <span>
+                      {s.title}
+                      {s.categoryTitle ? (
+                        <span className="mt-0.5 block text-xs text-[var(--ink-soft)]">{s.categoryTitle}</span>
+                      ) : null}
+                    </span>
+                    <span className="shrink-0 text-[var(--ink-soft)]">
+                      {s.durationMinutes} min · {s.priceLabel}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="rounded-2xl border border-black/10 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Add-ons</h4>
+                {showAddonsStep ? (
+                  <button type="button" className="text-sm underline" onClick={() => goToStepName("Add-ons")}>
+                    Edit
+                  </button>
+                ) : null}
+              </div>
+              {selectedAddons.length ? (
+                <ul className="mt-3 space-y-2 text-sm">
+                  {selectedAddons.map((a) => (
+                    <li key={a.id} className="flex items-start justify-between gap-3">
+                      <span>{a.title}</span>
+                      <span className="shrink-0 text-[var(--ink-soft)]">
+                        {a.durationMinutes > 0 ? `${a.durationMinutes} min · ` : ""}
+                        {a.priceLabel}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm text-[var(--ink-soft)]">No add-ons selected.</p>
+              )}
+            </section>
+
+            <section className="rounded-2xl border border-black/10 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Date &amp; time</h4>
+                <button type="button" className="text-sm underline" onClick={() => goToStepName("Date")}>
+                  Edit
+                </button>
+              </div>
+              <p className="mt-3 text-sm">{appointmentLabel}</p>
+              <p className="mt-1 text-sm text-[var(--ink-soft)]">{totals.durationMinutes} min total</p>
+            </section>
+
+            <section className="rounded-2xl border border-black/10 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Your details</h4>
+                <button type="button" className="text-sm underline" onClick={() => goToStepName("Details")}>
+                  Edit
+                </button>
+              </div>
+              <p className="mt-3 text-sm">{name}</p>
+              <p className="text-sm text-[var(--ink-soft)]">{email}</p>
+              {phone ? <p className="text-sm text-[var(--ink-soft)]">{phone}</p> : null}
+              {notes ? <p className="mt-2 text-sm text-[var(--ink-soft)]">Notes: {notes}</p> : null}
+            </section>
+
+            <section className="rounded-2xl border border-black/10 bg-[var(--bg-deep)] p-5">
+              <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Payment summary</h4>
+              <div className="mt-3 space-y-1 text-sm">
+                <p>
+                  Services &amp; add-ons total: <strong>{formatCad(totals.priceCents)}</strong>
+                </p>
+                {totals.paymentMode === "deposit" ? (
+                  <>
+                    <p>
+                      Due now (deposit + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                    </p>
+                    <p className="text-[var(--ink-soft)]">
+                      Remaining at appointment:{" "}
+                      {formatCad(Math.max(0, totals.priceCents - (totals.depositCents || 0)))} + tax
+                    </p>
+                  </>
+                ) : totals.paymentMode === "full" ? (
+                  <p>
+                    Due now (full + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                  </p>
+                ) : (
+                  <p>No online payment required for this booking.</p>
+                )}
+              </div>
+            </section>
+          </div>
+
+          <NavFooter continueLabel="Continue to payment" onContinue={goForward} />
         </div>
       )}
 
       {stepName === "Pay" && selectedServices.length > 0 && slotStart && (
         <div className="max-w-xl rounded-2xl border border-black/10 p-6">
-          <button type="button" className="mb-4 text-sm underline" onClick={() => goToStepName("Details")}>
-            Edit details
-          </button>
-          <h3 className="display text-2xl">Your booking</h3>
-          <ul className="mt-3 space-y-1 text-sm text-[var(--ink-soft)]">
-            {selectedServices.map((s) => (
-              <li key={s.id}>
-                {s.title}
-                {s.categoryTitle ? ` (${s.categoryTitle})` : ""} · {s.durationMinutes} min · {s.priceLabel}
-              </li>
-            ))}
-            {selectedAddons.map((a) => (
-              <li key={a.id}>
-                Add-on: {a.title}
-                {a.durationMinutes > 0 ? ` · ${a.durationMinutes} min` : ""} · {a.priceLabel}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm text-[var(--ink-soft)]">
-            {new Intl.DateTimeFormat("en-CA", {
-              timeZone: timezone,
-              dateStyle: "full",
-              timeStyle: "short",
-            }).format(new Date(slotStart))}{" "}
-            · {totals.durationMinutes} min total
+          <h3 className="display text-2xl">Confirm &amp; pay</h3>
+          <p className="mt-2 text-sm text-[var(--ink-soft)]">
+            {selectedServices.length} service{selectedServices.length === 1 ? "" : "s"}
+            {selectedAddons.length
+              ? ` · ${selectedAddons.length} add-on${selectedAddons.length === 1 ? "" : "s"}`
+              : ""}{" "}
+            · {totals.durationMinutes} min
           </p>
-          <p className="mt-2 text-sm">{name}</p>
-          <p className="text-sm text-[var(--ink-soft)]">{email}</p>
+          <p className="mt-3 text-sm">{appointmentLabel}</p>
           <div className="mt-6 space-y-1 text-sm">
-            <p>
-              Services total: <strong>{formatCad(totals.priceCents)}</strong>
-            </p>
             {totals.paymentMode === "deposit" ? (
               <p>
-                Due now (deposit + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                Charging now: <strong>{formatCad(totals.totalCents)}</strong> (deposit + HST)
               </p>
             ) : totals.paymentMode === "full" ? (
               <p>
-                Due now (full + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                Charging now: <strong>{formatCad(totals.totalCents)}</strong> (full + HST)
               </p>
             ) : (
-              <p>No online payment required for this booking.</p>
+              <p>No charge today — your booking will be confirmed immediately.</p>
             )}
-            {totals.paymentMode === "deposit" ? (
-              <p className="text-[var(--ink-soft)]">
-                Remaining balance due at appointment:{" "}
-                {formatCad(Math.max(0, totals.priceCents - (totals.depositCents || 0)))} + tax
-              </p>
-            ) : null}
           </div>
-          <button type="button" className="btn btn-gold mt-8" disabled={pending} onClick={submitCheckout}>
-            {pending
-              ? "Redirecting…"
-              : totals.paymentMode === "none" || totals.totalCents <= 0
-                ? "Confirm booking"
-                : "Pay & book"}
-          </button>
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <button type="button" className="btn" onClick={goBack}>
+              Back to review
+            </button>
+            <button type="button" className="btn btn-gold" disabled={pending} onClick={submitCheckout}>
+              {pending
+                ? "Redirecting…"
+                : totals.paymentMode === "none" || totals.totalCents <= 0
+                  ? "Confirm booking"
+                  : "Pay & book"}
+            </button>
+          </div>
         </div>
       )}
     </div>
