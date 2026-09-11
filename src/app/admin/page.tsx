@@ -1,8 +1,9 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import {
+  getAdminBookableServices,
   getAdminCare,
+  getAdminCategories,
   getAdminFaqs,
-  getAdminServices,
   getAllPages,
   getAppointmentDashboard,
   getInquiryStats,
@@ -31,15 +32,17 @@ function formatDay(iso: string) {
 }
 
 export default async function AdminDashboardPage() {
-  const [pages, services, faqs, care, inquiries, appointments] = await Promise.all([
+  const [pages, categories, services, faqs, care, inquiries, appointments] = await Promise.all([
     getAllPages(),
-    getAdminServices(),
+    getAdminCategories(),
+    getAdminBookableServices(),
     getAdminFaqs(),
     getAdminCare(),
     getInquiryStats(),
     getAppointmentDashboard(),
   ]);
 
+  const draftCategories = categories.filter((s) => s.status !== "published").length;
   const draftServices = services.filter((s) => s.status !== "published").length;
   const cards = [
     {
@@ -65,9 +68,15 @@ export default async function AdminDashboardPage() {
       href: "/admin/pages",
     },
     {
+      label: "Categories",
+      count: categories.length,
+      meta: draftCategories ? `${draftCategories} draft` : "All published",
+      href: "/admin/categories",
+    },
+    {
       label: "Services",
       count: services.length,
-      meta: draftServices ? `${draftServices} draft` : "All published",
+      meta: draftServices ? `${draftServices} draft` : "Bookable kinds",
       href: "/admin/services",
     },
     {
@@ -239,6 +248,7 @@ export default async function AdminDashboardPage() {
             { href: "/admin/clients", label: "Client list" },
             { href: "/admin/inquiries", label: "Inquiry inbox" },
             { href: "/admin/settings", label: "Homepage & branding" },
+            { href: "/admin/categories", label: "Categories" },
             { href: "/admin/services", label: "Services & pricing" },
             { href: "/book-now", label: "Public booking" },
           ].map((item) => (

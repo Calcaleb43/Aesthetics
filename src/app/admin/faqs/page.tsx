@@ -11,33 +11,33 @@ export default async function AdminFaqsPage({
   const faqs = await getAdminFaqs();
 
   return (
-    <AdminShell title="FAQs" description="Structured Q&A sets linked to each service.">
+    <AdminShell title="FAQs" description="Structured Q&A sets linked to each service category.">
       <CollectionWorkspace
         items={faqs.map((faq) => ({
-          key: faq.serviceSlug,
+          key: faq.categorySlug,
           label: faq.title,
           status: faq.status,
-          previewHref: `/faqs/${faq.serviceSlug}`,
+          previewHref: `/faqs/${faq.categorySlug}`,
           data: faq as unknown as Record<string, unknown>,
         }))}
         selectedKey={slug}
         basePath="/admin/faqs"
         endpoint="/api/admin/faqs"
         deleteEndpoint="/api/admin/faqs"
-        deleteKey="serviceSlug"
-        lockIdentityFields={["serviceSlug"]}
+        deleteKey="categorySlug"
+        lockIdentityFields={["categorySlug"]}
         createLabel="New FAQ set"
         emptyTitle="No FAQ sets yet"
-        emptyBody="Create an FAQ set for a service slug to power the FAQs section."
+        emptyBody="Create an FAQ set for a category slug to power the FAQs section."
         createTemplate={{
-          serviceSlug: "new-service",
+          categorySlug: "new-category",
           title: "New FAQ set",
           intro: "",
           status: "draft",
           items: [{ question: "", answer: "" }],
         }}
         fields={[
-          { name: "serviceSlug", label: "Service slug", hint: "Must match a service slug" },
+          { name: "categorySlug", label: "Category slug", hint: "Must match a category slug" },
           { name: "title", label: "Title" },
           { name: "intro", label: "Intro", type: "textarea", rows: 3 },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },

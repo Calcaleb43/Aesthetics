@@ -43,7 +43,7 @@ export type PageRecord = {
   coverImage: string | null;
 };
 
-export type ServiceRecord = {
+export type CategoryRecord = {
   slug: string;
   title: string;
   shortTitle: string;
@@ -55,6 +55,17 @@ export type ServiceRecord = {
   coverImage: string | null;
   bookingUrl: string | null;
   featured?: boolean;
+  id?: string;
+};
+
+export type ServiceRecord = {
+  slug: string;
+  title: string;
+  summary: string;
+  sortOrder: number;
+  status: string;
+  categorySlug: string;
+  categoryId?: string;
   durationMinutes: number;
   priceCents: number;
   depositCents: number | null;
@@ -63,8 +74,11 @@ export type ServiceRecord = {
   id?: string;
 };
 
+/** @deprecated Use CategoryRecord — alias for site pages that still say “service” for categories */
+export type ServiceCategoryRecord = CategoryRecord;
+
 export type FaqRecord = {
-  serviceSlug: string;
+  categorySlug: string;
   title: string;
   intro: string;
   status: string;
@@ -72,7 +86,7 @@ export type FaqRecord = {
 };
 
 export type CareRecord = {
-  serviceSlug: string;
+  categorySlug: string;
   title: string;
   status: string;
   content: string;
@@ -142,7 +156,7 @@ export function getSeedPage(slug: string) {
   return seed.pages.find((p) => p.slug === slug) ?? null;
 }
 
-function mapSeedService(s: (typeof seed.services)[number]): ServiceRecord {
+function mapSeedCategory(s: (typeof seed.categories)[number]): CategoryRecord {
   return {
     slug: s.slug,
     title: s.title,
@@ -155,35 +169,80 @@ function mapSeedService(s: (typeof seed.services)[number]): ServiceRecord {
     coverImage: s.coverImage,
     bookingUrl: s.bookingUrl,
     featured: (s as { featured?: boolean }).featured ?? true,
-    durationMinutes: (s as { durationMinutes?: number }).durationMinutes ?? 60,
-    priceCents: (s as { priceCents?: number }).priceCents ?? 0,
-    depositCents: (s as { depositCents?: number | null }).depositCents ?? null,
-    paymentMode: ((s as { paymentMode?: PaymentMode }).paymentMode || "deposit") as PaymentMode,
-    bookable: (s as { bookable?: boolean }).bookable ?? true,
   };
 }
 
-export function getSeedServices(): ServiceRecord[] {
-  return [...seed.services].map(mapSeedService).sort((a, b) => a.sortOrder - b.sortOrder);
+export function getSeedCategories(): CategoryRecord[] {
+  return [...seed.categories].map(mapSeedCategory).sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function getSeedCategory(slug: string) {
+  const found = seed.categories.find((s) => s.slug === slug);
+  return found ? mapSeedCategory(found) : null;
+}
+
+/** @deprecated alias — public site still calls these “services” meaning categories */
+export function getSeedServices(): CategoryRecord[] {
+  return getSeedCategories();
 }
 
 export function getSeedService(slug: string) {
+  return getSeedCategory(slug);
+}
+
+function mapSeedBookableService(s: (typeof seed.services)[number]): ServiceRecord {
+  return {
+    slug: s.slug,
+    title: s.title,
+    summary: s.summary || "",
+    sortOrder: s.sortOrder,
+    status: s.status,
+    categorySlug: s.categorySlug,
+    durationMinutes: s.durationMinutes ?? 60,
+    priceCents: s.priceCents ?? 0,
+    depositCents: s.depositCents ?? null,
+    paymentMode: ((s.paymentMode || "deposit") as PaymentMode),
+    bookable: s.bookable ?? true,
+  };
+}
+
+export function getSeedBookableServices(): ServiceRecord[] {
+  return [...seed.services].map(mapSeedBookableService).sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+export function getSeedBookableService(slug: string) {
   const found = seed.services.find((s) => s.slug === slug);
-  return found ? mapSeedService(found) : null;
+  return found ? mapSeedBookableService(found) : null;
 }
 
 export function getSeedFaqs(): FaqRecord[] {
-  return seed.faqs;
+  return seed.faqs.map((f) => ({
+    categorySlug: (f as { categorySlug?: string; serviceSlug?: string }).categorySlug
+      || (f as { serviceSlug?: string }).serviceSlug
+      || "",
+    title: f.title,
+    intro: f.intro,
+    status: f.status,
+    items: f.items,
+  }));
 }
 
-export function getSeedFaq(serviceSlug: string) {
-  return seed.faqs.find((f) => f.serviceSlug === serviceSlug) ?? null;
+export function getSeedFaq(categorySlug: string) {
+  return getSeedFaqs().find((f) => f.categorySlug === categorySlug) ?? null;
 }
 
 export function getSeedCareGuides(): CareRecord[] {
-  return seed.careGuides;
+  return seed.careGuides.map((c) => ({
+    categorySlug: (c as { categorySlug?: string; serviceSlug?: string }).categorySlug
+      || (c as { serviceSlug?: string }).serviceSlug
+      || "",
+    title: c.title,
+    status: c.status,
+    content: c.content,
+    coverImage: c.coverImage,
+  }));
 }
 
-export function getSeedCare(serviceSlug: string) {
-  return seed.careGuides.find((c) => c.serviceSlug === serviceSlug) ?? null;
+export function getSeedCare(categorySlug: string) {
+  return getSeedCareGuides().find((c) => c.categorySlug === categorySlug) ?? null;
 }

@@ -26,7 +26,7 @@ import {
   gridHourBounds,
 } from "@/lib/booking/weekly-hours";
 
-type ServiceOption = { id: string; title: string; slug: string };
+type ServiceOption = { id: string; title: string; slug: string; categorySlug?: string; categoryTitle?: string };
 
 type StaffOption = {
   id: string;
@@ -54,6 +54,7 @@ type Appointment = {
   amountLabel: string;
   priceLabel: string;
   serviceId: string;
+  serviceIds?: string[];
   serviceTitle: string;
   serviceSlug: string;
   serviceLabel: string | null;
@@ -139,7 +140,7 @@ export function AdminCalendar({
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [createStartsAt, setCreateStartsAt] = useState("");
   const [form, setForm] = useState({
-    serviceId: "",
+    serviceIds: [] as string[],
     staffId: "",
     clientId: "",
     clientName: "",
@@ -261,7 +262,7 @@ export function AdminCalendar({
       const hasAssignees = assigned.length > 0;
       setCreateStartsAt(starts);
       setForm({
-        serviceId: defaultServiceId,
+        serviceIds: defaultServiceId ? [defaultServiceId] : [],
         staffId: hasAssignees ? assigned[0]?.id || "" : "",
         clientId: c.id,
         clientName: c.name,
@@ -300,8 +301,9 @@ export function AdminCalendar({
     setClientSuggestions([]);
   }
 
-  function staffForService(serviceId: string, keepStaffId?: string | null) {
-    const assigned = staff.filter((s) => s.serviceIds.includes(serviceId));
+  function staffForServices(serviceIds: string[], keepStaffId?: string | null) {
+    if (!serviceIds.length) return staff;
+    const assigned = staff.filter((s) => serviceIds.every((id) => s.serviceIds.includes(id)));
     if (!assigned.length) return staff;
     if (keepStaffId && !assigned.some((s) => s.id === keepStaffId)) {
       const keep = staff.find((s) => s.id === keepStaffId);
@@ -311,14 +313,14 @@ export function AdminCalendar({
   }
 
   const serviceHasAssignees = useMemo(() => {
-    if (!form.serviceId) return false;
-    return staff.some((s) => s.serviceIds.includes(form.serviceId));
-  }, [staff, form.serviceId]);
+    if (!form.serviceIds.length) return false;
+    return staff.some((s) => form.serviceIds.every((id) => s.serviceIds.includes(id)));
+  }, [staff, form.serviceIds]);
 
   const formStaffOptions = useMemo(
-    () => staffForService(form.serviceId, form.staffId || selected?.staffId),
+    () => staffForServices(form.serviceIds, form.staffId || selected?.staffId),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [staff, form.serviceId, form.staffId, selected?.staffId],
+    [staff, form.serviceIds, form.staffId, selected?.staffId],
   );
 
   const hoursForGrid = useMemo(() => {
@@ -338,14 +340,25 @@ export function AdminCalendar({
     [hourStart, hourEnd],
   );
 
-  function selectService(serviceId: string) {
+  function toggleService(serviceId: string) {
     setForm((f) => {
-      const allowed = staffForService(serviceId, f.staffId);
+      const nextIds = f.serviceIds.includes(serviceId)
+        ? f.serviceIds.filter((id) => id !== serviceId)
+        : [...f.serviceIds, serviceId];
+      const categorySlug = initialServices.find((s) => s.id === serviceId)?.categorySlug;
+      const filtered =
+        categorySlug && nextIds.includes(serviceId)
+          ? nextIds.filter((id) => {
+              const opt = initialServices.find((s) => s.id === id);
+              return !opt?.categorySlug || opt.categorySlug === categorySlug;
+            })
+          : nextIds;
+      const allowed = staffForServices(filtered, f.staffId);
       const staffStillOk = !f.staffId || allowed.some((s) => s.id === f.staffId);
-      const hasAssignees = staff.some((s) => s.serviceIds.includes(serviceId));
+      const hasAssignees = staff.some((s) => filtered.every((id) => s.serviceIds.includes(id)));
       return {
         ...f,
-        serviceId,
+        serviceIds: filtered,
         staffId: staffStillOk
           ? f.staffId
           : hasAssignees
@@ -359,11 +372,14 @@ export function AdminCalendar({
     if (!canWrite) return;
     const starts = toLocalInputValue(at);
     const defaultServiceId = initialServices[0]?.id || "";
-    const assigned = staffForService(defaultServiceId);
-    const hasAssignees = staff.some((s) => s.serviceIds.includes(defaultServiceId));
+    const ids = defaultServiceId ? [defaultServiceId] : [];
+    const assigned = staffForServices(ids);
+    const hasAssignees = staff.some((s) =>
+      ids.length ? ids.every((id) => s.serviceIds.includes(id)) : false,
+    );
     setCreateStartsAt(starts);
     setForm({
-      serviceId: defaultServiceId,
+      serviceIds: ids,
       staffId: hasAssignees ? assigned[0]?.id || "" : "",
       clientId: "",
       clientName: "",
@@ -382,7 +398,7 @@ export function AdminCalendar({
   function openEdit(appt: Appointment) {
     setSelected(appt);
     setForm({
-      serviceId: appt.serviceId,
+      serviceIds: appt.serviceIds?.length ? appt.serviceIds : appt.serviceId ? [appt.serviceId] : [],
       staffId: appt.staffId || "",
       clientId: appt.clientId || "",
       clientName: appt.clientName,
@@ -407,7 +423,7 @@ export function AdminCalendar({
     setSaving(true);
     setError("");
     const body: Record<string, unknown> = {
-      serviceId: form.serviceId,
+      serviceIds: form.serviceIds,
       staffId: form.staffId || null,
       clientId: form.clientId || null,
       startsAt: new Date(form.startsAt || createStartsAt).toISOString(),
@@ -856,21 +872,32 @@ export function AdminCalendar({
                   className="grid gap-3"
                 >
                   {drawer === "create" ? (
-                    <label className="grid gap-1 text-sm text-white/70">
-                      Service
-                      <select
-                        className="admin-input"
-                        value={form.serviceId}
-                        onChange={(e) => selectService(e.target.value)}
-                        required
-                      >
-                        {initialServices.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.title}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <fieldset className="grid gap-2 text-sm text-white/70">
+                      <legend className="mb-1">Services (same category)</legend>
+                      <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">
+                        {initialServices.map((s) => {
+                          const checked = form.serviceIds.includes(s.id);
+                          return (
+                            <label key={s.id} className="flex items-start gap-2 text-sm text-white/80">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={checked}
+                                onChange={() => toggleService(s.id)}
+                              />
+                              <span>
+                                {s.title}
+                                {s.categoryTitle ? (
+                                  <span className="mt-0.5 block text-[0.65rem] uppercase tracking-[0.12em] text-white/40">
+                                    {s.categoryTitle}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
                   ) : null}
 
                   <label className="grid gap-1 text-sm text-white/70">

@@ -1,6 +1,6 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import { CollectionWorkspace } from "@/components/admin/CollectionWorkspace";
-import { getAdminServices } from "@/lib/content/queries";
+import { getAdminBookableServices, getAdminCategories } from "@/lib/content/queries";
 
 export default async function AdminServicesPage({
   searchParams,
@@ -8,16 +8,24 @@ export default async function AdminServicesPage({
   searchParams: Promise<{ slug?: string }>;
 }) {
   const { slug } = await searchParams;
-  const services = await getAdminServices();
+  const [services, categories] = await Promise.all([
+    getAdminBookableServices(),
+    getAdminCategories(),
+  ]);
+  const categorySlugs = categories.map((c) => c.slug);
+  const defaultCategory = categorySlugs[0] || "ombre-brows";
 
   return (
-    <AdminShell title="Services" description="Manage treatment pages, booking links, and publish status.">
+    <AdminShell
+      title="Services"
+      description="Bookable service kinds under each category. Clients can multi-select these during booking."
+    >
       <CollectionWorkspace
         items={services.map((service) => ({
           key: service.slug,
-          label: service.title,
+          label: `${service.title} (${service.categorySlug})`,
           status: service.status,
-          previewHref: `/services/${service.slug}`,
+          previewHref: `/services/${service.categorySlug}`,
           data: service as unknown as Record<string, unknown>,
         }))}
         selectedKey={slug}
@@ -28,33 +36,30 @@ export default async function AdminServicesPage({
         lockIdentityFields={["slug"]}
         createLabel="New service"
         emptyTitle="No services yet"
-        emptyBody="Add a service to populate the treatments menu and service pages."
+        emptyBody="Add priced services under a category for online booking."
         createTemplate={{
           slug: "new-service",
+          categorySlug: defaultCategory,
           title: "New service",
-          shortTitle: "NEW SERVICE",
-          tagline: "",
           summary: "",
-          coverImage: "",
-          bookingUrl: "",
           sortOrder: services.length + 1,
-          featured: true,
           durationMinutes: 60,
           priceCents: 0,
           depositCents: 5000,
           paymentMode: "deposit",
           bookable: true,
           status: "draft",
-          content: "",
         }}
         fields={[
           { name: "slug", label: "Slug" },
+          {
+            name: "categorySlug",
+            label: "Category",
+            type: "select",
+            options: categorySlugs.length ? categorySlugs : [defaultCategory],
+          },
           { name: "title", label: "Title" },
-          { name: "shortTitle", label: "Short title" },
-          { name: "tagline", label: "Tagline" },
-          { name: "summary", label: "Summary", type: "textarea", rows: 4 },
-          { name: "coverImage", label: "Cover image URL" },
-          { name: "bookingUrl", label: "External booking URL (optional fallback)" },
+          { name: "summary", label: "Summary", type: "textarea", rows: 3 },
           { name: "durationMinutes", label: "Duration (minutes)", type: "number" },
           { name: "priceCents", label: "Price (cents, before tax)", type: "number", hint: "e.g. 50000 = $500.00" },
           { name: "depositCents", label: "Deposit (cents, before tax)", type: "number" },
@@ -66,9 +71,7 @@ export default async function AdminServicesPage({
           },
           { name: "bookable", label: "Bookable online", type: "boolean" },
           { name: "sortOrder", label: "Sort order", type: "number" },
-          { name: "featured", label: "Featured on homepage", type: "boolean" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
-          { name: "content", label: "Content", type: "textarea", rows: 18 },
         ]}
       />
     </AdminShell>

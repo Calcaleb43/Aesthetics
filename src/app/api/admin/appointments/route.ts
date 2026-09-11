@@ -6,8 +6,10 @@ import { requireAdminApi } from "@/lib/auth/admin-api";
 import { canManageAllAppointments, canWriteAppointments } from "@/lib/auth/roles";
 import { upsertClient } from "@/lib/booking/clients";
 import { activeHoldStatuses } from "@/lib/booking/availability";
+import { appointmentDisplayTitle } from "@/lib/booking/labels";
 import { asWeeklyHours, formatCad } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
+import { staffForAllServices } from "@/lib/booking/service";
 import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
 import type { Database } from "@/lib/db";
 import { emailAppointmentCancelled } from "@/lib/email/resend";
@@ -21,11 +23,8 @@ function whenLabel(startsAt: Date, timeZone: string) {
   }).format(startsAt);
 }
 
-async function assertStaffForService(db: Database, serviceId: string, staffId: string | null) {
-  const assigned = await db.staffService.findMany({
-    where: { serviceId, admin: { active: true } },
-    select: { adminId: true },
-  });
+async function assertStaffForServices(db: Database, serviceIds: string[], staffId: string | null) {
+  const assigned = await staffForAllServices(db, serviceIds);
 
   if (!assigned.length) {
     return { ok: true as const };
@@ -34,15 +33,15 @@ async function assertStaffForService(db: Database, serviceId: string, staffId: s
   if (!staffId) {
     return {
       ok: false as const,
-      error: "Select a team member assigned to this service",
+      error: "Select a team member assigned to all selected services",
     };
   }
 
-  const match = assigned.some((a) => a.adminId === staffId);
+  const match = assigned.some((a) => a.id === staffId);
   if (!match) {
     return {
       ok: false as const,
-      error: "That team member is not assigned to this service",
+      error: "That team member is not assigned to all selected services",
     };
   }
 
@@ -68,7 +67,9 @@ export async function GET(req: Request) {
       ...(to ? { lte: new Date(to) } : {}),
     };
   }
-  if (serviceId) where.serviceId = serviceId;
+  if (serviceId) {
+    where.OR = [{ serviceId }, { lines: { some: { serviceId } } }];
+  }
 
   if (gate.session.role === "staff") {
     where.staffId = gate.session.sub;
@@ -81,6 +82,11 @@ export async function GET(req: Request) {
       where,
       include: {
         service: { select: { id: true, title: true, slug: true } },
+        category: { select: { id: true, title: true, slug: true } },
+        lines: {
+          orderBy: { sortOrder: "asc" },
+          select: { serviceId: true, title: true, durationMinutes: true, priceCents: true },
+        },
         staff: { select: { id: true, name: true, color: true } },
       },
       orderBy: { startsAt: "asc" },
@@ -122,30 +128,37 @@ export async function GET(req: Request) {
       serviceIds: serviceIdsByStaff.get(s.id) || [],
       weeklyHours: normalizeStaffWeeklyHours(s.weeklyHours),
     })),
-    appointments: rows.map((row) => ({
-      id: row.id,
-      status: row.status,
-      startsAt: row.startsAt.toISOString(),
-      endsAt: row.endsAt.toISOString(),
-      clientId: row.clientId,
-      seriesId: row.seriesId,
-      clientName: row.clientName,
-      clientEmail: row.clientEmail,
-      clientPhone: row.clientPhone,
-      notes: row.notes,
-      paymentMode: row.paymentMode,
-      amountChargedCents: row.amountChargedCents,
-      amountLabel: formatCad(row.amountChargedCents),
-      priceLabel: formatCad(row.priceCents),
-      serviceId: row.service.id,
-      serviceTitle: row.serviceLabel || row.service.title,
-      serviceSlug: row.service.slug,
-      serviceLabel: row.serviceLabel,
-      staffId: row.staffId,
-      staffName: row.staff?.name || null,
-      staffColor: row.staff?.color || "#c6a75e",
-      createdAt: row.createdAt.toISOString(),
-    })),
+    appointments: rows.map((row) => {
+      const title = appointmentDisplayTitle(row);
+      const lineIds = row.lines.map((l) => l.serviceId);
+      return {
+        id: row.id,
+        status: row.status,
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+        clientId: row.clientId,
+        seriesId: row.seriesId,
+        clientName: row.clientName,
+        clientEmail: row.clientEmail,
+        clientPhone: row.clientPhone,
+        notes: row.notes,
+        paymentMode: row.paymentMode,
+        amountChargedCents: row.amountChargedCents,
+        amountLabel: formatCad(row.amountChargedCents),
+        priceLabel: formatCad(row.priceCents),
+        categoryId: row.categoryId,
+        categoryTitle: row.category.title,
+        serviceId: row.serviceId || lineIds[0] || "",
+        serviceIds: lineIds.length ? lineIds : row.serviceId ? [row.serviceId] : [],
+        serviceTitle: title,
+        serviceSlug: row.service?.slug || row.category.slug,
+        serviceLabel: row.serviceLabel,
+        staffId: row.staffId,
+        staffName: row.staff?.name || null,
+        staffColor: row.staff?.color || "#c6a75e",
+        createdAt: row.createdAt.toISOString(),
+      };
+    }),
   });
 }
 
@@ -162,6 +175,7 @@ const patchSchema = z.object({
   clientEmail: z.string().email().optional(),
   clientPhone: z.string().max(64).nullable().optional(),
   serviceId: z.string().uuid().optional(),
+  serviceIds: z.array(z.string().uuid()).min(1).optional(),
   clientId: z.string().uuid().nullable().optional(),
 });
 
@@ -173,7 +187,12 @@ export async function PATCH(req: Request) {
 
   const existing = await gate.db.appointment.findUnique({
     where: { id: parsed.data.id },
-    include: { service: true, staff: true },
+    include: {
+      service: true,
+      category: true,
+      staff: true,
+      lines: { orderBy: { sortOrder: "asc" } },
+    },
   });
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -187,7 +206,6 @@ export async function PATCH(req: Request) {
   if (parsed.data.clientName !== undefined) data.clientName = parsed.data.clientName;
   if (parsed.data.clientEmail !== undefined) data.clientEmail = parsed.data.clientEmail.trim().toLowerCase();
   if (parsed.data.clientPhone !== undefined) data.clientPhone = parsed.data.clientPhone;
-  if (parsed.data.serviceId !== undefined) data.serviceId = parsed.data.serviceId;
   if (parsed.data.staffId !== undefined) {
     if (gate.session.role === "staff") {
       data.staffId = gate.session.sub;
@@ -196,13 +214,53 @@ export async function PATCH(req: Request) {
     }
   }
 
-  const nextServiceId =
-    (data.serviceId as string | undefined) ?? existing.serviceId;
+  let nextServiceIds =
+    parsed.data.serviceIds ||
+    (parsed.data.serviceId ? [parsed.data.serviceId] : null) ||
+    (existing.lines.length
+      ? existing.lines.map((l) => l.serviceId)
+      : existing.serviceId
+        ? [existing.serviceId]
+        : []);
+
+  if (parsed.data.serviceIds || parsed.data.serviceId) {
+    const services = await gate.db.service.findMany({
+      where: { id: { in: nextServiceIds } },
+      orderBy: { sortOrder: "asc" },
+    });
+    if (services.length !== nextServiceIds.length) {
+      return NextResponse.json({ error: "Service not found" }, { status: 404 });
+    }
+    const categoryId = services[0].categoryId;
+    if (services.some((s) => s.categoryId !== categoryId)) {
+      return NextResponse.json({ error: "Services must share one category" }, { status: 400 });
+    }
+    nextServiceIds = services.map((s) => s.id);
+    data.categoryId = categoryId;
+    data.serviceId = services[0].id;
+    data.serviceLabel = services.map((s) => s.title).join(", ").slice(0, 255);
+    data.priceCents = services.reduce((sum, s) => sum + s.priceCents, 0);
+    data.depositCents = services.reduce((sum, s) => sum + (s.depositCents || 0), 0) || null;
+    await gate.db.appointmentService.deleteMany({ where: { appointmentId: existing.id } });
+    await gate.db.appointmentService.createMany({
+      data: services.map((s, index) => ({
+        appointmentId: existing.id,
+        serviceId: s.id,
+        title: s.title,
+        durationMinutes: s.durationMinutes,
+        priceCents: s.priceCents,
+        depositCents: s.depositCents,
+        paymentMode: s.paymentMode,
+        sortOrder: index,
+      })),
+    });
+  }
+
   const nextStaffId =
     data.staffId !== undefined ? (data.staffId as string | null) : existing.staffId;
 
-  if (parsed.data.staffId !== undefined || parsed.data.serviceId !== undefined) {
-    const staffCheck = await assertStaffForService(gate.db, nextServiceId, nextStaffId);
+  if (parsed.data.staffId !== undefined || parsed.data.serviceId !== undefined || parsed.data.serviceIds) {
+    const staffCheck = await assertStaffForServices(gate.db, nextServiceIds, nextStaffId);
     if (!staffCheck.ok) {
       return NextResponse.json({ error: staffCheck.error }, { status: 400 });
     }
@@ -212,14 +270,12 @@ export async function PATCH(req: Request) {
     data.startsAt = new Date(parsed.data.startsAt);
     if (parsed.data.endsAt) data.endsAt = new Date(parsed.data.endsAt);
     else {
-      const service =
-        parsed.data.serviceId && parsed.data.serviceId !== existing.serviceId
-          ? await gate.db.service.findUnique({ where: { id: parsed.data.serviceId } })
-          : existing.service;
-      data.endsAt = addMinutes(
-        new Date(parsed.data.startsAt),
-        service?.durationMinutes ?? existing.service.durationMinutes,
-      );
+      const services = await gate.db.service.findMany({ where: { id: { in: nextServiceIds } } });
+      const duration = services.reduce((sum, s) => sum + s.durationMinutes, 0)
+        || existing.lines.reduce((sum, l) => sum + l.durationMinutes, 0)
+        || existing.service?.durationMinutes
+        || 60;
+      data.endsAt = addMinutes(new Date(parsed.data.startsAt), duration);
     }
   } else if (parsed.data.endsAt) {
     data.endsAt = new Date(parsed.data.endsAt);
@@ -243,23 +299,29 @@ export async function PATCH(req: Request) {
   const updated = await gate.db.appointment.update({
     where: { id: parsed.data.id },
     data,
-    include: { service: true, staff: true },
+    include: {
+      service: { select: { title: true } },
+      category: { select: { title: true } },
+      staff: true,
+      lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
+    },
   });
 
   if (parsed.data.status === "cancelled" && existing.status !== "cancelled") {
     const settings = await gate.db.siteSettings.findUnique({ where: { id: 1 } });
     const tz = settings?.timezone || "America/Toronto";
     const label = whenLabel(updated.startsAt, tz);
+    const title = appointmentDisplayTitle(updated);
     await emailAppointmentCancelled({
       to: updated.clientEmail,
       clientName: updated.clientName,
-      serviceTitle: updated.service.title,
+      serviceTitle: title,
       whenLabel: label,
     });
     await notifyAdmins(gate.db, {
       type: "appointment_cancelled",
       title: "Appointment cancelled",
-      body: `${updated.clientName} · ${updated.service.title} · ${label}`,
+      body: `${updated.clientName} · ${title} · ${label}`,
       includeStaffId: updated.staffId,
       metadata: { appointmentId: updated.id },
     });
@@ -269,7 +331,8 @@ export async function PATCH(req: Request) {
 }
 
 const createSchema = z.object({
-  serviceId: z.string().uuid(),
+  serviceId: z.string().uuid().optional(),
+  serviceIds: z.array(z.string().uuid()).min(1).optional(),
   staffId: z.string().uuid().nullable().optional(),
   clientId: z.string().uuid().nullable().optional(),
   startsAt: z.string().datetime(),
@@ -285,6 +348,8 @@ const createSchema = z.object({
       until: z.string().datetime().optional().nullable(),
     })
     .optional(),
+}).refine((v) => (v.serviceIds?.length || 0) > 0 || !!v.serviceId, {
+  message: "serviceIds required",
 });
 
 export async function POST(req: Request) {
@@ -293,13 +358,37 @@ export async function POST(req: Request) {
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
 
-  const service = await gate.db.service.findUnique({ where: { id: parsed.data.serviceId } });
-  if (!service) return NextResponse.json({ error: "Service not found" }, { status: 404 });
+  const serviceIds = parsed.data.serviceIds?.length
+    ? parsed.data.serviceIds
+    : parsed.data.serviceId
+      ? [parsed.data.serviceId]
+      : [];
+
+  const services = await gate.db.service.findMany({
+    where: { id: { in: serviceIds } },
+    orderBy: { sortOrder: "asc" },
+  });
+  if (services.length !== serviceIds.length) {
+    return NextResponse.json({ error: "Service not found" }, { status: 404 });
+  }
+  const categoryId = services[0].categoryId;
+  if (services.some((s) => s.categoryId !== categoryId)) {
+    return NextResponse.json({ error: "Services must share one category" }, { status: 400 });
+  }
+
+  const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
+  const priceCents = services.reduce((sum, s) => sum + s.priceCents, 0);
+  const depositCents = services.reduce((sum, s) => sum + (s.depositCents || 0), 0) || null;
+  const serviceLabel = services.map((s) => s.title).join(", ").slice(0, 255);
 
   let staffId = parsed.data.staffId ?? null;
   if (gate.session.role === "staff") staffId = gate.session.sub;
 
-  const staffCheck = await assertStaffForService(gate.db, service.id, staffId);
+  const staffCheck = await assertStaffForServices(
+    gate.db,
+    services.map((s) => s.id),
+    staffId,
+  );
   if (!staffCheck.ok) {
     return NextResponse.json({ error: staffCheck.error }, { status: 400 });
   }
@@ -336,7 +425,7 @@ export async function POST(req: Request) {
   const status = parsed.data.status || "confirmed";
 
   for (const startsAt of occurrenceStarts) {
-    const endsAt = addMinutes(startsAt, service.durationMinutes);
+    const endsAt = addMinutes(startsAt, durationMinutes);
 
     if (staffId) {
       const clash = await gate.db.appointment.findFirst({
@@ -355,7 +444,8 @@ export async function POST(req: Request) {
 
     const row = await gate.db.appointment.create({
       data: {
-        serviceId: service.id,
+        categoryId,
+        serviceId: services[0].id,
         staffId,
         clientId,
         seriesId,
@@ -366,12 +456,24 @@ export async function POST(req: Request) {
         clientPhone,
         notes: parsed.data.notes || "",
         status,
-        priceCents: service.priceCents,
-        depositCents: service.depositCents,
+        priceCents,
+        depositCents,
         taxCents: 0,
         amountChargedCents: 0,
         paymentMode: "none",
+        serviceLabel,
         policyAcceptedAt: new Date(),
+        lines: {
+          create: services.map((s, index) => ({
+            serviceId: s.id,
+            title: s.title,
+            durationMinutes: s.durationMinutes,
+            priceCents: s.priceCents,
+            depositCents: s.depositCents,
+            paymentMode: s.paymentMode,
+            sortOrder: index,
+          })),
+        },
       },
     });
     created.push(row.id);

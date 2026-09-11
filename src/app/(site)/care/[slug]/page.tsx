@@ -7,7 +7,7 @@ import { getAllCare, getCare, getSettings } from "@/lib/content/queries";
 
 export async function generateStaticParams() {
   const guides = await getAllCare();
-  return guides.map((g) => ({ slug: g.serviceSlug }));
+  return guides.map((g) => ({ slug: g.categorySlug }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
@@ -33,8 +33,8 @@ export default async function CareDetailPage({ params }: { params: Promise<{ slu
         imageAlt={guide.title}
         size="compact"
         ctas={[
-          { label: "View service", href: `/services/${guide.serviceSlug}` },
-          { label: "FAQs", href: `/faqs/${guide.serviceSlug}`, variant: "ghost" },
+          { label: "View service", href: `/services/${guide.categorySlug}` },
+          { label: "FAQs", href: `/faqs/${guide.categorySlug}`, variant: "ghost" },
         ]}
       />
 
@@ -47,10 +47,10 @@ export default async function CareDetailPage({ params }: { params: Promise<{ slu
             <ContentBlocks content={guide.content} />
           </div>
           <div className="mt-10 flex flex-wrap gap-3">
-            <Link href={`/services/${guide.serviceSlug}`} className="btn">
+            <Link href={`/services/${guide.categorySlug}`} className="btn">
               View service
             </Link>
-            <Link href={`/faqs/${guide.serviceSlug}`} className="btn">
+            <Link href={`/faqs/${guide.categorySlug}`} className="btn">
               FAQs
             </Link>
           </div>

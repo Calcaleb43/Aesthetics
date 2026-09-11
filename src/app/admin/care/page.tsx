@@ -11,33 +11,33 @@ export default async function AdminCarePage({
   const guides = await getAdminCare();
 
   return (
-    <AdminShell title="Care Guides" description="Pre-care and aftercare instructions by service.">
+    <AdminShell title="Care Guides" description="Pre-care and aftercare instructions by category.">
       <CollectionWorkspace
         items={guides.map((guide) => ({
-          key: guide.serviceSlug,
+          key: guide.categorySlug,
           label: guide.title,
           status: guide.status,
-          previewHref: `/care/${guide.serviceSlug}`,
+          previewHref: `/care/${guide.categorySlug}`,
           data: guide as unknown as Record<string, unknown>,
         }))}
         selectedKey={slug}
         basePath="/admin/care"
         endpoint="/api/admin/care"
         deleteEndpoint="/api/admin/care"
-        deleteKey="serviceSlug"
-        lockIdentityFields={["serviceSlug"]}
+        deleteKey="categorySlug"
+        lockIdentityFields={["categorySlug"]}
         createLabel="New care guide"
         emptyTitle="No care guides yet"
-        emptyBody="Add pre-care and aftercare content linked to a service."
+        emptyBody="Add pre-care and aftercare content linked to a category."
         createTemplate={{
-          serviceSlug: "new-service",
+          categorySlug: "new-category",
           title: "New care guide",
           coverImage: "",
           status: "draft",
           content: "",
         }}
         fields={[
-          { name: "serviceSlug", label: "Service slug" },
+          { name: "categorySlug", label: "Category slug" },
           { name: "title", label: "Title" },
           { name: "coverImage", label: "Cover image URL" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },

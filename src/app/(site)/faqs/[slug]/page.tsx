@@ -7,7 +7,7 @@ import { getAllFaqs, getFaq, getSettings } from "@/lib/content/queries";
 
 export async function generateStaticParams() {
   const faqs = await getAllFaqs();
-  return faqs.map((f) => ({ slug: f.serviceSlug }));
+  return faqs.map((f) => ({ slug: f.categorySlug }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
@@ -33,8 +33,8 @@ export default async function FaqDetailPage({ params }: { params: Promise<{ slug
         imageAlt={faq.title}
         size="compact"
         ctas={[
-          { label: "View service", href: `/services/${faq.serviceSlug}` },
-          { label: "Pre & Aftercare", href: `/care/${faq.serviceSlug}`, variant: "ghost" },
+          { label: "View service", href: `/services/${faq.categorySlug}` },
+          { label: "Pre & Aftercare", href: `/care/${faq.categorySlug}`, variant: "ghost" },
         ]}
       />
 
@@ -47,10 +47,10 @@ export default async function FaqDetailPage({ params }: { params: Promise<{ slug
             <FaqAccordion items={faq.items} />
           </div>
           <div className="mt-10 flex flex-wrap gap-3">
-            <Link href={`/services/${faq.serviceSlug}`} className="btn">
+            <Link href={`/services/${faq.categorySlug}`} className="btn">
               View service
             </Link>
-            <Link href={`/care/${faq.serviceSlug}`} className="btn">
+            <Link href={`/care/${faq.categorySlug}`} className="btn">
               Pre & Aftercare
             </Link>
           </div>

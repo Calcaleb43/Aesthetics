@@ -1,4 +1,5 @@
 import type { Database } from "@/lib/db";
+import { appointmentDisplayTitle } from "@/lib/booking/labels";
 import { emailAppointmentBooked } from "@/lib/email/resend";
 import { notifyAdmins } from "@/lib/notifications";
 
@@ -18,7 +19,9 @@ export async function announceAppointmentBooked(
     where: { id: appointmentId },
     include: {
       service: { select: { title: true } },
+      category: { select: { title: true } },
       staff: { select: { id: true, name: true, email: true } },
+      lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
     },
   });
   if (!row || row.status !== "confirmed") return;
@@ -26,11 +29,12 @@ export async function announceAppointmentBooked(
   const settings = await db.siteSettings.findUnique({ where: { id: 1 } });
   const tz = settings?.timezone || "America/Toronto";
   const label = whenLabel(row.startsAt, tz);
+  const serviceTitle = appointmentDisplayTitle(row);
 
   await emailAppointmentBooked({
     to: row.clientEmail,
     clientName: row.clientName,
-    serviceTitle: row.service.title,
+    serviceTitle,
     whenLabel: label,
     staffName: row.staff?.name,
     amountChargedCents: row.amountChargedCents,
@@ -40,7 +44,7 @@ export async function announceAppointmentBooked(
     await emailAppointmentBooked({
       to: row.staff.email,
       clientName: row.clientName,
-      serviceTitle: row.service.title,
+      serviceTitle,
       whenLabel: label,
       staffName: row.staff.name,
       amountChargedCents: row.amountChargedCents,
@@ -51,7 +55,7 @@ export async function announceAppointmentBooked(
   await notifyAdmins(db, {
     type: "appointment_booked",
     title: "New booking confirmed",
-    body: `${row.clientName} · ${row.service.title} · ${label}`,
+    body: `${row.clientName} · ${serviceTitle} · ${label}`,
     href: "/admin/appointments",
     includeStaffId: row.staffId,
     metadata: { appointmentId: row.id },

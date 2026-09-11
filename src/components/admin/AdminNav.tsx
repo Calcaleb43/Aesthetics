@@ -6,6 +6,7 @@ import {
   BookOpen,
   CalendarDays,
   FileText,
+  FolderTree,
   HelpCircle,
   ImageIcon,
   LayoutDashboard,
@@ -52,6 +53,7 @@ const groups: NavGroup[] = [
     label: "Content",
     links: [
       { href: "/admin/pages", label: "Pages", icon: FileText },
+      { href: "/admin/categories", label: "Categories", icon: FolderTree },
       { href: "/admin/services", label: "Services", icon: Sparkles },
       { href: "/admin/faqs", label: "FAQs", icon: HelpCircle },
       { href: "/admin/care", label: "Care Guides", icon: BookOpen },

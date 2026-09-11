@@ -111,9 +111,11 @@ function mapStatus(row: Record<string, string>) {
 function mapServiceSlug(type: string): string | null {
   const n = normalizeType(type);
   if (!n) return null;
-  if (n.includes("dpn") || n.includes("skin tag") || n.includes("wart")) return "dpn-skin-tag-removal";
+  if (n.includes("dpn") || n.includes("skin tag") || n.includes("wart")) {
+    return "dpn-skin-tag-removal-session";
+  }
   if (n.includes("dark lip") || n.includes("lip blush") || n.includes("lip neutralization")) {
-    return "dark-lip-neutralization";
+    return "dark-lip-neutralization-session";
   }
   if (
     n.includes("laser") ||
@@ -128,15 +130,15 @@ function mapServiceSlug(type: string): string | null {
     n.includes("full legs") ||
     n.includes("full arms")
   ) {
-    return "laser-hair-removal";
+    return "laser-hair-removal-session";
   }
   if (n.includes("ombre") || n.includes("ombr") || n.includes("brow") || n.includes("henna")) {
-    return "ombre-brows";
+    return "ombre-brows-session";
   }
   if (n.includes("stretch") || n.includes("scar") || n.includes("inkless")) {
-    return "inkless-stretch-marks-and-scar-revision";
+    return "inkless-stretch-marks-and-scar-revision-session";
   }
-  if (n.includes("cold plasma")) return "cold-plasma";
+  if (n.includes("cold plasma")) return "cold-plasma-session";
   if (n.includes("consult")) return "imported-acuity";
   if (n.includes("training") || n.includes("class") || n.includes("course") || n.includes("1on1")) {
     return "imported-acuity";
@@ -164,28 +166,44 @@ async function main() {
     (await db.admin.findFirst({ where: { role: "owner", active: true }, orderBy: { createdAt: "asc" } })) ||
     (await db.admin.findFirst({ where: { active: true }, orderBy: { createdAt: "asc" } }));
 
-  const services = await db.service.findMany({ select: { id: true, slug: true, title: true } });
+  const services = await db.service.findMany({
+    select: { id: true, slug: true, title: true, categoryId: true },
+  });
   const bySlug = new Map(services.map((s) => [s.slug, s]));
+
+  let importedCategory = await db.serviceCategory.findUnique({ where: { slug: "imported-acuity" } });
+  if (!importedCategory) {
+    importedCategory = await db.serviceCategory.create({
+      data: {
+        slug: "imported-acuity",
+        title: "Imported (Acuity)",
+        shortTitle: "IMPORTED",
+        tagline: "Legacy Acuity booking type",
+        summary: "Placeholder category for services imported from Acuity.",
+        content: "",
+        status: "published",
+        featured: false,
+        sortOrder: 999,
+      },
+    });
+  }
 
   let importedService = bySlug.get("imported-acuity");
   if (!importedService) {
     importedService = await db.service.create({
       data: {
+        categoryId: importedCategory.id,
         slug: "imported-acuity",
         title: "Imported (Acuity)",
-        shortTitle: "Imported",
-        tagline: "Legacy Acuity booking type",
         summary: "Placeholder for services imported from Acuity that are not mapped 1:1.",
-        content: "",
         status: "published",
-        featured: false,
         bookable: false,
         durationMinutes: 60,
         priceCents: 0,
         paymentMode: "none",
         sortOrder: 999,
       },
-      select: { id: true, slug: true, title: true },
+      select: { id: true, slug: true, title: true, categoryId: true },
     });
     bySlug.set(importedService.slug, importedService);
   }
@@ -280,6 +298,7 @@ async function main() {
     const noteBody = notes ? `[Acuity: ${type}]\n${notes}` : `[Acuity: ${type}]`;
 
     const data = {
+      categoryId: service.categoryId || importedCategory.id,
       serviceId: service.id,
       staffId: owner?.id || null,
       clientId: client.id,

@@ -19,7 +19,11 @@ export async function GET(req: Request) {
         appointments: {
           orderBy: { startsAt: "desc" },
           take: 200,
-          include: { service: { select: { title: true, slug: true } } },
+          include: {
+            service: { select: { title: true, slug: true } },
+            category: { select: { title: true, slug: true } },
+            lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
+          },
         },
       },
     });
@@ -39,8 +43,12 @@ export async function GET(req: Request) {
           status: a.status,
           startsAt: a.startsAt.toISOString(),
           endsAt: a.endsAt.toISOString(),
-          serviceTitle: a.serviceLabel || a.service.title,
-          serviceSlug: a.service.slug,
+          serviceTitle:
+            a.serviceLabel ||
+            (a.lines.length ? a.lines.map((l) => l.title).join(", ") : null) ||
+            a.service?.title ||
+            a.category.title,
+          serviceSlug: a.service?.slug || a.category.slug,
           serviceLabel: a.serviceLabel,
           priceLabel: formatCad(a.priceCents),
           amountLabel: formatCad(a.amountChargedCents),

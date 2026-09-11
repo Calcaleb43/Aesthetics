@@ -4,7 +4,7 @@ import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 
 const schema = z.object({
-  serviceSlug: z.string().min(1),
+  categorySlug: z.string().min(1),
   title: z.string().min(1),
   content: z.string().nullable().optional(),
   coverImage: z.string().nullable().optional(),
@@ -25,8 +25,8 @@ export async function PUT(req: Request) {
   };
 
   await gate.db.careGuide.upsert({
-    where: { serviceSlug: parsed.data.serviceSlug },
-    create: { serviceSlug: parsed.data.serviceSlug, ...data },
+    where: { categorySlug: parsed.data.categorySlug },
+    create: { categorySlug: parsed.data.categorySlug, ...data },
     update: data,
   });
 
@@ -37,10 +37,10 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
-  const parsed = z.object({ serviceSlug: z.string().min(1) }).safeParse(await req.json());
+  const parsed = z.object({ categorySlug: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
 
-  await gate.db.careGuide.delete({ where: { serviceSlug: parsed.data.serviceSlug } });
+  await gate.db.careGuide.delete({ where: { categorySlug: parsed.data.categorySlug } });
   revalidateSite();
   return NextResponse.json({ ok: true });
 }

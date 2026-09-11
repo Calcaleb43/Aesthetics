@@ -113,9 +113,49 @@ export function asWeeklyHours(value: unknown): WeeklyHours {
   return out;
 }
 
-export function bookingHref(bookingEnabled: boolean, bookingUrl: string, serviceSlug?: string | null) {
+export function bookingHref(bookingEnabled: boolean, bookingUrl: string, categorySlug?: string | null) {
   if (bookingEnabled) {
-    return serviceSlug ? `/book-now?service=${encodeURIComponent(serviceSlug)}` : "/book-now";
+    return categorySlug ? `/book-now?category=${encodeURIComponent(categorySlug)}` : "/book-now";
   }
   return bookingUrl;
+}
+
+/** Sum per-line charges (deposit/full/none each) into one checkout total. */
+export function multiChargeBreakdown(
+  lines: { priceCents: number; depositCents: number | null; paymentMode: string }[],
+  hstRateBps: number,
+) {
+  let baseCents = 0;
+  let taxCents = 0;
+  let priceCents = 0;
+  let depositCents = 0;
+  const modes = new Set(lines.map((l) => l.paymentMode));
+  for (const line of lines) {
+    priceCents += line.priceCents;
+    depositCents += Math.max(0, line.depositCents ?? 0);
+    const part = chargeBreakdown({
+      priceCents: line.priceCents,
+      depositCents: line.depositCents,
+      paymentMode: line.paymentMode,
+      hstRateBps,
+    });
+    baseCents += part.baseCents;
+    taxCents += part.taxCents;
+  }
+  const paymentMode =
+    modes.size === 1
+      ? [...modes][0]
+      : baseCents <= 0
+        ? "none"
+        : depositCents > 0 && baseCents < priceCents
+          ? "deposit"
+          : "full";
+  return {
+    baseCents,
+    taxCents,
+    totalCents: baseCents + taxCents,
+    priceCents,
+    depositCents: depositCents > 0 ? depositCents : null,
+    paymentMode,
+  };
 }

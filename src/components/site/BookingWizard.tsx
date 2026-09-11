@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { addDays, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
-import { formatCad } from "@/lib/booking/money";
+import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
 
 type BookableService = {
   id: string;
@@ -21,9 +21,17 @@ type BookableService = {
   chargeTotalCents: number;
 };
 
+type BookableCategory = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  services: BookableService[];
+};
+
 type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
 
-const steps = ["Service", "Date", "Time", "Details", "Pay"] as const;
+const steps = ["Category", "Services", "Date", "Time", "Details", "Pay"] as const;
 
 export function BookingWizard({
   initialSlug,
@@ -32,10 +40,12 @@ export function BookingWizard({
   initialSlug?: string;
   timezone?: string;
 }) {
-  const [services, setServices] = useState<BookableService[]>([]);
+  const [categories, setCategories] = useState<BookableCategory[]>([]);
+  const [hstRateBps, setHstRateBps] = useState(1300);
   const [enabled, setEnabled] = useState(true);
   const [loadingServices, setLoadingServices] = useState(true);
-  const [serviceId, setServiceId] = useState<string>("");
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -53,7 +63,37 @@ export function BookingWizard({
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const selected = services.find((s) => s.id === serviceId) || null;
+  const category = categories.find((c) => c.id === categoryId) || null;
+  const selectedServices = useMemo(
+    () => (category?.services || []).filter((s) => selectedServiceIds.includes(s.id)),
+    [category, selectedServiceIds],
+  );
+
+  const totals = useMemo(() => {
+    if (!selectedServices.length) {
+      return {
+        durationMinutes: 0,
+        priceCents: 0,
+        depositCents: null as number | null,
+        paymentMode: "none",
+        baseCents: 0,
+        taxCents: 0,
+        totalCents: 0,
+        titles: "",
+      };
+    }
+    const charge = multiChargeBreakdown(selectedServices, hstRateBps);
+    return {
+      durationMinutes: selectedServices.reduce((sum, s) => sum + s.durationMinutes, 0),
+      priceCents: charge.priceCents,
+      depositCents: charge.depositCents,
+      paymentMode: charge.paymentMode,
+      baseCents: charge.baseCents,
+      taxCents: charge.taxCents,
+      totalCents: charge.totalCents,
+      titles: selectedServices.map((s) => s.title).join(", "),
+    };
+  }, [selectedServices, hstRateBps]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,14 +106,18 @@ export function BookingWizard({
         if (!res.ok) {
           setEnabled(false);
           setError(data.error || "Booking is unavailable right now.");
-          setServices([]);
+          setCategories([]);
           return;
         }
         setEnabled(data.enabled !== false);
-        const list = (data.services || []) as BookableService[];
-        setServices(list);
-        const match = list.find((s) => s.slug === initialSlug) || list[0];
-        if (match) setServiceId(match.id);
+        setHstRateBps(data.hstRateBps ?? 1300);
+        const list = (data.categories || []) as BookableCategory[];
+        setCategories(list);
+        const match =
+          list.find((c) => c.slug === initialSlug) ||
+          list.find((c) => c.services.some((s) => s.slug === initialSlug)) ||
+          list[0];
+        if (match) setCategoryId(match.id);
       } catch {
         if (!cancelled) setError("Could not load bookable services.");
       } finally {
@@ -86,7 +130,7 @@ export function BookingWizard({
   }, [initialSlug]);
 
   useEffect(() => {
-    if (!serviceId || !selectedDay) {
+    if (!selectedServiceIds.length || !selectedDay) {
       setSlots([]);
       return;
     }
@@ -98,9 +142,12 @@ export function BookingWizard({
         const day = parseISO(`${selectedDay}T12:00:00`);
         const from = day.toISOString();
         const to = addDays(day, 1).toISOString();
-        const res = await fetch(
-          `/api/booking/availability?serviceId=${encodeURIComponent(serviceId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-        );
+        const params = new URLSearchParams({
+          from,
+          to,
+          serviceIds: selectedServiceIds.join(","),
+        });
+        const res = await fetch(`/api/booking/availability?${params}`);
         const data = await res.json();
         if (cancelled) return;
         if (!res.ok) {
@@ -118,7 +165,7 @@ export function BookingWizard({
     return () => {
       cancelled = true;
     };
-  }, [serviceId, selectedDay]);
+  }, [selectedServiceIds, selectedDay]);
 
   useEffect(() => {
     const normalized = email.trim().toLowerCase();
@@ -148,20 +195,31 @@ export function BookingWizard({
     return days;
   }, [month]);
 
-  async function loadMonthAvailabilityHint() {
-    // Soft-load: mark days that have at least one slot when service selected
-  }
-
-  useEffect(() => {
-    void loadMonthAvailabilityHint;
-  }, [serviceId, month]);
-
-  function selectService(id: string) {
-    setServiceId(id);
+  function selectCategory(id: string) {
+    setCategoryId(id);
+    setSelectedServiceIds([]);
     setSelectedDay(null);
     setSlotStart("");
     setSlotStaffId(null);
     setStep(1);
+  }
+
+  function toggleService(id: string) {
+    setSelectedServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+    setSelectedDay(null);
+    setSlotStart("");
+    setSlotStaffId(null);
+  }
+
+  function continueFromServices() {
+    if (!selectedServiceIds.length) {
+      setError("Select at least one service.");
+      return;
+    }
+    setError("");
+    setStep(2);
   }
 
   function selectDay(day: Date) {
@@ -169,13 +227,13 @@ export function BookingWizard({
     setSelectedDay(key);
     setSlotStart("");
     setSlotStaffId(null);
-    setStep(2);
+    setStep(3);
   }
 
   function selectSlot(slot: Slot) {
     setSlotStart(slot.start);
     setSlotStaffId(slot.staffId ?? null);
-    setStep(3);
+    setStep(4);
   }
 
   function goPay() {
@@ -188,11 +246,11 @@ export function BookingWizard({
       setError("Please agree to the studio policies before booking.");
       return;
     }
-    setStep(4);
+    setStep(5);
   }
 
   function submitCheckout() {
-    if (!selected || !slotStart) return;
+    if (!category || !selectedServiceIds.length || !slotStart) return;
     setError("");
     startTransition(async () => {
       try {
@@ -200,7 +258,8 @@ export function BookingWizard({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            serviceId: selected.id,
+            categoryId: category.id,
+            serviceIds: selectedServiceIds,
             startsAt: slotStart,
             staffId: slotStaffId,
             clientName: name,
@@ -235,7 +294,7 @@ export function BookingWizard({
     );
   }
 
-  if (!services.length) {
+  if (!categories.length) {
     return <p className="mt-10 text-sm text-[var(--ink-soft)]">No bookable services are published yet.</p>;
   }
 
@@ -256,34 +315,80 @@ export function BookingWizard({
 
       {step === 0 && (
         <div className="grid gap-3">
-          {services.map((s) => (
+          {categories.map((c) => (
             <button
-              key={s.id}
+              key={c.id}
               type="button"
-              onClick={() => selectService(s.id)}
+              onClick={() => selectCategory(c.id)}
               className={`rounded-2xl border px-5 py-4 text-left transition ${
-                serviceId === s.id ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                categoryId === c.id ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
               }`}
             >
-              <p className="font-semibold tracking-wide">{s.title}</p>
-              <p className={`mt-1 text-sm ${serviceId === s.id ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                {s.durationMinutes} min · from {s.priceLabel}
-                {s.paymentMode === "deposit"
-                  ? ` · deposit ${s.chargeLabel}`
-                  : s.paymentMode === "full"
-                    ? ` · pay ${s.chargeLabel}`
-                    : " · no online payment"}
+              <p className="font-semibold tracking-wide">{c.title}</p>
+              <p className={`mt-1 text-sm ${categoryId === c.id ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                {c.services.length} service{c.services.length === 1 ? "" : "s"} available
               </p>
             </button>
           ))}
         </div>
       )}
 
-      {step === 1 && selected && (
+      {step === 1 && category && (
+        <div>
+          <button type="button" className="mb-4 text-sm underline" onClick={() => setStep(0)}>
+            Change category
+          </button>
+          <p className="mb-4 text-sm text-[var(--ink-soft)]">
+            Select one or more {category.title} services for this visit.
+          </p>
+          <div className="grid gap-3">
+            {category.services.map((s) => {
+              const active = selectedServiceIds.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => toggleService(s.id)}
+                  className={`rounded-2xl border px-5 py-4 text-left transition ${
+                    active ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold tracking-wide">{s.title}</p>
+                      <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                        {s.durationMinutes} min · {s.priceLabel}
+                        {s.paymentMode === "deposit"
+                          ? ` · deposit ${s.chargeLabel}`
+                          : s.paymentMode === "full"
+                            ? ` · pay ${s.chargeLabel}`
+                            : " · no online payment"}
+                      </p>
+                    </div>
+                    <span className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}>
+                      {active ? "Selected" : "Select"}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          {selectedServices.length ? (
+            <p className="mt-4 text-sm text-[var(--ink-soft)]">
+              {selectedServices.length} selected · {totals.durationMinutes} min · from {formatCad(totals.priceCents)}
+            </p>
+          ) : null}
+          <button type="button" className="btn btn-gold mt-6" onClick={continueFromServices}>
+            Continue
+          </button>
+        </div>
+      )}
+
+      {step === 2 && selectedServices.length > 0 && (
         <div>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button type="button" className="self-start text-sm underline" onClick={() => setStep(0)}>
-              Change service
+            <button type="button" className="self-start text-sm underline" onClick={() => setStep(1)}>
+              Change services
             </button>
             <div className="flex items-center gap-2">
               <button
@@ -352,13 +457,14 @@ export function BookingWizard({
         </div>
       )}
 
-      {step === 2 && selected && selectedDay && (
+      {step === 3 && selectedServices.length > 0 && selectedDay && (
         <div>
-          <button type="button" className="mb-4 text-sm underline" onClick={() => setStep(1)}>
+          <button type="button" className="mb-4 text-sm underline" onClick={() => setStep(2)}>
             Change date
           </button>
           <p className="mb-4 text-sm text-[var(--ink-soft)]">
-            {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")} · {selected.title}
+            {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")} · {totals.titles} · {totals.durationMinutes}{" "}
+            min
           </p>
           {loadingSlots ? (
             <p className="text-sm text-[var(--ink-soft)]">Loading times…</p>
@@ -397,9 +503,9 @@ export function BookingWizard({
         </div>
       )}
 
-      {step === 3 && selected && slotStart && (
+      {step === 4 && selectedServices.length > 0 && slotStart && (
         <div className="grid max-w-xl gap-4">
-          <button type="button" className="w-fit text-sm underline" onClick={() => setStep(2)}>
+          <button type="button" className="w-fit text-sm underline" onClick={() => setStep(3)}>
             Change time
           </button>
           <label className="grid gap-1 text-sm">
@@ -466,48 +572,55 @@ export function BookingWizard({
         </div>
       )}
 
-      {step === 4 && selected && slotStart && (
+      {step === 5 && selectedServices.length > 0 && slotStart && (
         <div className="max-w-xl rounded-2xl border border-black/10 p-6">
-          <button type="button" className="mb-4 text-sm underline" onClick={() => setStep(3)}>
+          <button type="button" className="mb-4 text-sm underline" onClick={() => setStep(4)}>
             Edit details
           </button>
-          <h3 className="display text-2xl">{selected.title}</h3>
-          <p className="mt-2 text-sm text-[var(--ink-soft)]">
+          <h3 className="display text-2xl">{category?.title}</h3>
+          <ul className="mt-3 space-y-1 text-sm text-[var(--ink-soft)]">
+            {selectedServices.map((s) => (
+              <li key={s.id}>
+                {s.title} · {s.durationMinutes} min · {s.priceLabel}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm text-[var(--ink-soft)]">
             {new Intl.DateTimeFormat("en-CA", {
               timeZone: timezone,
               dateStyle: "full",
               timeStyle: "short",
             }).format(new Date(slotStart))}{" "}
-            · {selected.durationMinutes} min
+            · {totals.durationMinutes} min total
           </p>
           <p className="mt-2 text-sm">{name}</p>
           <p className="text-sm text-[var(--ink-soft)]">{email}</p>
           <div className="mt-6 space-y-1 text-sm">
             <p>
-              Service price: <strong>{selected.priceLabel}</strong>
+              Services total: <strong>{formatCad(totals.priceCents)}</strong>
             </p>
-            {selected.paymentMode === "deposit" ? (
+            {totals.paymentMode === "deposit" ? (
               <p>
-                Due now (deposit + HST): <strong>{selected.chargeLabel}</strong>
+                Due now (deposit + HST): <strong>{formatCad(totals.totalCents)}</strong>
               </p>
-            ) : selected.paymentMode === "full" ? (
+            ) : totals.paymentMode === "full" ? (
               <p>
-                Due now (full + HST): <strong>{selected.chargeLabel}</strong>
+                Due now (full + HST): <strong>{formatCad(totals.totalCents)}</strong>
               </p>
             ) : (
-              <p>No online payment required for this service.</p>
+              <p>No online payment required for this booking.</p>
             )}
-            {selected.paymentMode !== "none" && selected.paymentMode === "deposit" ? (
+            {totals.paymentMode === "deposit" ? (
               <p className="text-[var(--ink-soft)]">
                 Remaining balance due at appointment:{" "}
-                {formatCad(Math.max(0, selected.priceCents - (selected.depositCents || 0)))} + tax
+                {formatCad(Math.max(0, totals.priceCents - (totals.depositCents || 0)))} + tax
               </p>
             ) : null}
           </div>
           <button type="button" className="btn btn-gold mt-8" disabled={pending} onClick={submitCheckout}>
             {pending
               ? "Redirecting…"
-              : selected.paymentMode === "none" || selected.chargeTotalCents <= 0
+              : totals.paymentMode === "none" || totals.totalCents <= 0
                 ? "Confirm booking"
                 : "Pay & book"}
           </button>

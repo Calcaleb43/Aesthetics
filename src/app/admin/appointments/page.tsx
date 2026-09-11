@@ -1,13 +1,21 @@
 import { Suspense } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminCalendar } from "@/components/admin/calendar/AdminCalendar";
-import { getAdminServices, getSettings } from "@/lib/content/queries";
+import { getAdminBookableServices, getAdminCategories, getSettings } from "@/lib/content/queries";
 
 export default async function AdminAppointmentsPage() {
-  const [services, settings] = await Promise.all([getAdminServices(), getSettings()]);
+  const [services, settings] = await Promise.all([getAdminBookableServices(), getSettings()]);
+  const categories = await getAdminCategories();
+  const titleBySlug = Object.fromEntries(categories.map((c) => [c.slug, c.title]));
   const initialServices = services
     .filter((s) => s.id)
-    .map((s) => ({ id: s.id as string, title: s.title, slug: s.slug }));
+    .map((s) => ({
+      id: s.id as string,
+      title: s.title,
+      slug: s.slug,
+      categorySlug: s.categorySlug,
+      categoryTitle: titleBySlug[s.categorySlug] || s.categorySlug,
+    }));
 
   return (
     <AdminShell

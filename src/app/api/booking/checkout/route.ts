@@ -9,15 +9,16 @@ import {
 } from "@/lib/booking/availability";
 import { announceAppointmentBooked } from "@/lib/booking/announce";
 import { upsertClient } from "@/lib/booking/clients";
-import { chargeBreakdown, formatCad } from "@/lib/booking/money";
-import { findBookableService } from "@/lib/booking/service";
+import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
+import { findBookableServices, staffForAllServices } from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 
 const schema = z.object({
-  serviceId: z.string().min(1),
+  categoryId: z.string().uuid().optional(),
+  serviceIds: z.array(z.string().uuid()).min(1),
   startsAt: z.string().datetime(),
   staffId: z.string().uuid().nullable().optional(),
   clientName: z.string().min(1).max(160),
@@ -54,35 +55,39 @@ export async function POST(req: Request) {
     data: { status: "expired" },
   });
 
-  const service = await findBookableService(db, parsed.data.serviceId);
-  if (!service) {
-    return NextResponse.json({ error: "Service not available" }, { status: 404 });
+  const services = await findBookableServices(db, parsed.data.serviceIds);
+  if (!services) {
+    return NextResponse.json({ error: "Services not available or must share one category" }, { status: 404 });
   }
+
+  if (parsed.data.categoryId && services[0].categoryId !== parsed.data.categoryId) {
+    return NextResponse.json({ error: "Services do not match category" }, { status: 400 });
+  }
+
+  const categoryId = services[0].categoryId;
+  const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
+  const titles = services.map((s) => s.title);
+  const serviceLabel = titles.join(", ").slice(0, 255);
 
   const startsAt = new Date(parsed.data.startsAt);
   if (Number.isNaN(startsAt.getTime())) {
     return NextResponse.json({ error: "Invalid start time" }, { status: 400 });
   }
-  const endsAt = addMinutes(startsAt, service.durationMinutes);
+  const endsAt = addMinutes(startsAt, durationMinutes);
   const holds = activeHoldStatuses();
+  const serviceIds = services.map((s) => s.id);
 
-  const assigned = await db.staffService.findMany({
-    where: { serviceId: service.id, admin: { active: true } },
-    include: { admin: { select: { id: true, name: true, weeklyHours: true } } },
-    orderBy: { admin: { name: "asc" } },
-  });
+  const assigned = await staffForAllServices(db, serviceIds);
 
   let staffId: string | null = parsed.data.staffId || null;
   if (assigned.length) {
-    const candidates = staffId
-      ? assigned.filter((a) => a.adminId === staffId)
-      : assigned;
+    const candidates = staffId ? assigned.filter((a) => a.id === staffId) : assigned;
     let chosen: string | null = null;
-    for (const row of candidates) {
+    for (const admin of candidates) {
       const [appointments, blocks] = await Promise.all([
         db.appointment.findMany({
           where: {
-            staffId: row.adminId,
+            staffId: admin.id,
             status: { in: [...holds] },
             startsAt: { lt: endsAt },
             endsAt: { gt: startsAt },
@@ -91,7 +96,7 @@ export async function POST(req: Request) {
         }),
         db.blockedTime.findMany({
           where: {
-            OR: [{ staffId: null }, { staffId: row.adminId }],
+            OR: [{ staffId: null }, { staffId: admin.id }],
             startsAt: { lt: endsAt },
             endsAt: { gt: startsAt },
           },
@@ -99,14 +104,13 @@ export async function POST(req: Request) {
         }),
       ]);
       if (!appointments.length && !blocks.length) {
-        // Still verify via slot engine for lead time / hours
         const dayStart = new Date(startsAt);
         dayStart.setUTCHours(0, 0, 0, 0);
         const busy: BusyRange[] = [
           ...(
             await db.appointment.findMany({
               where: {
-                staffId: row.adminId,
+                staffId: admin.id,
                 status: { in: [...holds] },
                 startsAt: { lt: addMinutes(dayStart, 48 * 60) },
                 endsAt: { gt: dayStart },
@@ -117,7 +121,7 @@ export async function POST(req: Request) {
           ...(
             await db.blockedTime.findMany({
               where: {
-                OR: [{ staffId: null }, { staffId: row.adminId }],
+                OR: [{ staffId: null }, { staffId: admin.id }],
                 startsAt: { lt: addMinutes(dayStart, 48 * 60) },
                 endsAt: { gt: dayStart },
               },
@@ -127,18 +131,18 @@ export async function POST(req: Request) {
         ];
         const open = computeAvailableSlots({
           timeZone: settings.timezone,
-          weeklyHours: effectiveWeeklyHours(row.admin.weeklyHours, settings.weeklyHours),
+          weeklyHours: effectiveWeeklyHours(admin.weeklyHours, settings.weeklyHours),
           slotIntervalMinutes: settings.slotIntervalMinutes,
           bufferMinutes: settings.bufferMinutes,
           minLeadHours: settings.minLeadHours,
           maxAdvanceDays: settings.maxAdvanceDays,
-          durationMinutes: service.durationMinutes,
+          durationMinutes,
           from: dayStart,
           to: addMinutes(dayStart, 48 * 60),
           busy,
         });
         if (open.some((s) => s.start === startsAt.toISOString())) {
-          chosen = row.adminId;
+          chosen = admin.id;
           break;
         }
       }
@@ -179,7 +183,7 @@ export async function POST(req: Request) {
       bufferMinutes: settings.bufferMinutes,
       minLeadHours: settings.minLeadHours,
       maxAdvanceDays: settings.maxAdvanceDays,
-      durationMinutes: service.durationMinutes,
+      durationMinutes,
       from: dayStart,
       to: addMinutes(dayStart, 48 * 60),
       busy,
@@ -190,14 +194,8 @@ export async function POST(req: Request) {
     staffId = null;
   }
 
-  const charge = chargeBreakdown({
-    priceCents: service.priceCents,
-    depositCents: service.depositCents,
-    paymentMode: service.paymentMode,
-    hstRateBps: settings.hstRateBps,
-  });
-
-  const instantlyConfirmed = service.paymentMode === "none" || charge.totalCents <= 0;
+  const charge = multiChargeBreakdown(services, settings.hstRateBps);
+  const instantlyConfirmed = charge.paymentMode === "none" || charge.totalCents <= 0;
 
   const clientName = parsed.data.clientName.trim();
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
@@ -211,7 +209,8 @@ export async function POST(req: Request) {
 
   const appointment = await db.appointment.create({
     data: {
-      serviceId: service.id,
+      categoryId,
+      serviceId: services[0].id,
       staffId,
       clientId: client.id,
       startsAt,
@@ -221,12 +220,24 @@ export async function POST(req: Request) {
       clientPhone,
       notes: parsed.data.notes?.trim() || "",
       status: instantlyConfirmed ? "confirmed" : "pending_payment",
-      priceCents: service.priceCents,
-      depositCents: service.depositCents,
+      priceCents: charge.priceCents,
+      depositCents: charge.depositCents,
       taxCents: charge.taxCents,
       amountChargedCents: charge.totalCents,
-      paymentMode: service.paymentMode,
+      paymentMode: charge.paymentMode,
+      serviceLabel,
       policyAcceptedAt: new Date(),
+      lines: {
+        create: services.map((s, index) => ({
+          serviceId: s.id,
+          title: s.title,
+          durationMinutes: s.durationMinutes,
+          priceCents: s.priceCents,
+          depositCents: s.depositCents,
+          paymentMode: s.paymentMode,
+          sortOrder: index,
+        })),
+      },
     },
   });
 
@@ -248,9 +259,9 @@ export async function POST(req: Request) {
   }
 
   const label =
-    service.paymentMode === "deposit"
-      ? `Booking deposit — ${service.title}`
-      : `Booking payment — ${service.title}`;
+    charge.paymentMode === "deposit"
+      ? `Booking deposit — ${serviceLabel}`
+      : `Booking payment — ${serviceLabel}`;
 
   try {
     const session = await getStripe().checkout.sessions.create({
@@ -263,7 +274,7 @@ export async function POST(req: Request) {
             currency: "cad",
             unit_amount: charge.totalCents,
             product_data: {
-              name: label,
+              name: label.slice(0, 120),
               description: `${formatCad(charge.baseCents)} + HST ${formatCad(charge.taxCents)}`,
             },
           },
@@ -271,8 +282,9 @@ export async function POST(req: Request) {
       ],
       metadata: {
         appointmentId: appointment.id,
-        serviceId: service.id,
-        paymentMode: service.paymentMode,
+        categoryId,
+        serviceIds: serviceIds.join(","),
+        paymentMode: charge.paymentMode,
       },
       success_url: `${siteUrl()}/book-now/success?appointment=${appointment.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/book-now/cancelled?appointment=${appointment.id}`,

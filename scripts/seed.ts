@@ -77,60 +77,80 @@ async function main() {
     });
   }
 
+  const categoryIdBySlug = new Map<string, string>();
+
+  for (const category of seed.categories) {
+    const row = await prisma.serviceCategory.upsert({
+      where: { slug: category.slug },
+      create: {
+        slug: category.slug,
+        title: category.title,
+        shortTitle: category.shortTitle,
+        tagline: category.tagline,
+        summary: category.summary,
+        content: category.content,
+        coverImage: category.coverImage,
+        bookingUrl: category.bookingUrl,
+        sortOrder: category.sortOrder,
+        status: category.status,
+        featured: category.featured ?? true,
+      },
+      update: {
+        title: category.title,
+        shortTitle: category.shortTitle,
+        tagline: category.tagline,
+        summary: category.summary,
+        content: category.content,
+        coverImage: category.coverImage,
+        bookingUrl: category.bookingUrl,
+        sortOrder: category.sortOrder,
+        status: category.status,
+        featured: category.featured ?? true,
+      },
+    });
+    categoryIdBySlug.set(category.slug, row.id);
+  }
+
   for (const service of seed.services) {
-    const booking = service as typeof service & {
-      durationMinutes?: number;
-      priceCents?: number;
-      depositCents?: number | null;
-      paymentMode?: string;
-      bookable?: boolean;
-      featured?: boolean;
-    };
+    const categoryId = categoryIdBySlug.get(service.categorySlug);
+    if (!categoryId) {
+      throw new Error(`Missing category for service ${service.slug}: ${service.categorySlug}`);
+    }
     await prisma.service.upsert({
       where: { slug: service.slug },
       create: {
+        categoryId,
         slug: service.slug,
         title: service.title,
-        shortTitle: service.shortTitle,
-        tagline: service.tagline,
-        summary: service.summary,
-        content: service.content,
-        coverImage: service.coverImage,
-        bookingUrl: service.bookingUrl,
+        summary: service.summary || "",
         sortOrder: service.sortOrder,
         status: service.status,
-        featured: booking.featured ?? true,
-        durationMinutes: booking.durationMinutes ?? 60,
-        priceCents: booking.priceCents ?? 0,
-        depositCents: booking.depositCents ?? null,
-        paymentMode: booking.paymentMode ?? "deposit",
-        bookable: booking.bookable ?? true,
+        durationMinutes: service.durationMinutes ?? 60,
+        priceCents: service.priceCents ?? 0,
+        depositCents: service.depositCents ?? null,
+        paymentMode: service.paymentMode ?? "deposit",
+        bookable: service.bookable ?? true,
       },
       update: {
+        categoryId,
         title: service.title,
-        shortTitle: service.shortTitle,
-        tagline: service.tagline,
-        summary: service.summary,
-        content: service.content,
-        coverImage: service.coverImage,
-        bookingUrl: service.bookingUrl,
+        summary: service.summary || "",
         sortOrder: service.sortOrder,
         status: service.status,
-        featured: booking.featured ?? true,
-        durationMinutes: booking.durationMinutes ?? 60,
-        priceCents: booking.priceCents ?? 0,
-        depositCents: booking.depositCents ?? null,
-        paymentMode: booking.paymentMode ?? "deposit",
-        bookable: booking.bookable ?? true,
+        durationMinutes: service.durationMinutes ?? 60,
+        priceCents: service.priceCents ?? 0,
+        depositCents: service.depositCents ?? null,
+        paymentMode: service.paymentMode ?? "deposit",
+        bookable: service.bookable ?? true,
       },
     });
   }
 
   for (const faq of seed.faqs) {
     await prisma.faq.upsert({
-      where: { serviceSlug: faq.serviceSlug },
+      where: { categorySlug: faq.categorySlug },
       create: {
-        serviceSlug: faq.serviceSlug,
+        categorySlug: faq.categorySlug,
         title: faq.title,
         intro: faq.intro,
         status: faq.status,
@@ -147,9 +167,9 @@ async function main() {
 
   for (const guide of seed.careGuides) {
     await prisma.careGuide.upsert({
-      where: { serviceSlug: guide.serviceSlug },
+      where: { categorySlug: guide.categorySlug },
       create: {
-        serviceSlug: guide.serviceSlug,
+        categorySlug: guide.categorySlug,
         title: guide.title,
         content: guide.content,
         coverImage: guide.coverImage,

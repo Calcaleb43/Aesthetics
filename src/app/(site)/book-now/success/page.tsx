@@ -16,11 +16,16 @@ export default async function BookSuccessPage({
     try {
       const row = await getPrisma().appointment.findUnique({
         where: { id },
-        include: { service: { select: { title: true } } },
+        include: {
+          service: { select: { title: true } },
+          category: { select: { title: true } },
+          lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
+        },
       });
       if (row && (row.status === "confirmed" || row.status === "pending_payment")) {
+        const { appointmentDisplayTitle } = await import("@/lib/booking/labels");
         summary = {
-          title: row.service.title,
+          title: appointmentDisplayTitle(row),
           startsAt: row.startsAt.toISOString(),
           email: row.clientEmail,
         };

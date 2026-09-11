@@ -3,8 +3,13 @@ import { notFound } from "next/navigation";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
-import { bookingHref } from "@/lib/booking/money";
-import { getPublishedServices, getService, getSettings } from "@/lib/content/queries";
+import { bookingHref, formatCad } from "@/lib/booking/money";
+import {
+  getPublishedBookableServices,
+  getPublishedServices,
+  getService,
+  getSettings,
+} from "@/lib/content/queries";
 
 export async function generateStaticParams() {
   const services = await getPublishedServices();
@@ -23,7 +28,11 @@ export default async function ServiceDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [service, settings] = await Promise.all([getService(slug), getSettings()]);
+  const [service, settings, bookable] = await Promise.all([
+    getService(slug),
+    getSettings(),
+    getPublishedBookableServices(slug),
+  ]);
   if (!service) notFound();
 
   const heroImage = service.coverImage || settings.heroImage;
@@ -48,6 +57,21 @@ export default async function ServiceDetailPage({
       <section className="section">
         <ScrollReveal className="mx-auto max-w-3xl">
           <p className="mb-10 text-lg leading-8 text-[var(--ink-soft)]">{service.summary}</p>
+          {bookable.length ? (
+            <div className="mb-10 border-y border-[var(--line)] py-8">
+              <p className="eyebrow">Available services</p>
+              <ul className="mt-4 space-y-3">
+                {bookable.map((item) => (
+                  <li key={item.slug} className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+                    <span className="font-medium">{item.title}</span>
+                    <span className="text-[var(--ink-soft)]">
+                      {item.durationMinutes} min · {formatCad(item.priceCents)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <ContentBlocks content={service.content} />
           <div className="mt-10 flex flex-wrap gap-3">
             {book.startsWith("http") ? (

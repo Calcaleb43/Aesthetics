@@ -14,9 +14,9 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function BookNowPage({
   searchParams,
 }: {
-  searchParams: Promise<{ service?: string }>;
+  searchParams: Promise<{ service?: string; category?: string }>;
 }) {
-  const { service } = await searchParams;
+  const { service, category } = await searchParams;
   const [page, settings] = await Promise.all([getPage("book-now"), getSettings()]);
 
   return (
@@ -24,7 +24,7 @@ export default async function BookNowPage({
       <PageHero
         eyebrow="Book Now"
         title={page?.title || "Book an appointment"}
-        subtitle="Choose a service, pick an available time, and secure your visit with a booking payment."
+        subtitle="Choose a category, select one or more services, pick an available time, and secure your visit with a booking payment."
         image={settings.heroImage}
         imageAlt="Aniekanvas Aesthetics studio"
         size="compact"
@@ -37,7 +37,7 @@ export default async function BookNowPage({
           </a>{" "}
           before booking.
         </p>
-        <BookingWizard initialSlug={service} timezone={settings.timezone} />
+        <BookingWizard initialSlug={category || service} timezone={settings.timezone} />
         {!settings.bookingEnabled && settings.bookingUrl ? (
           <p className="mt-8 text-sm">
             Prefer the previous scheduler?{" "}

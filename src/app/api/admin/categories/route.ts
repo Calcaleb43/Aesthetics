@@ -4,11 +4,17 @@ import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 
 const schema = z.object({
-  categorySlug: z.string().min(1),
+  slug: z.string().min(1),
   title: z.string().min(1),
-  intro: z.string().nullable().optional(),
+  shortTitle: z.string().min(1),
+  tagline: z.string().nullable().optional(),
+  summary: z.string().nullable().optional(),
+  content: z.string().nullable().optional(),
+  coverImage: z.string().nullable().optional(),
+  bookingUrl: z.string().nullable().optional(),
+  sortOrder: z.number(),
+  featured: z.boolean().optional(),
   status: z.enum(["draft", "published"]),
-  items: z.array(z.object({ question: z.string(), answer: z.string() })),
 });
 
 export async function PUT(req: Request) {
@@ -19,14 +25,20 @@ export async function PUT(req: Request) {
 
   const data = {
     title: parsed.data.title,
-    intro: parsed.data.intro || "",
+    shortTitle: parsed.data.shortTitle,
+    tagline: parsed.data.tagline || "",
+    summary: parsed.data.summary || "",
+    content: parsed.data.content || "",
+    coverImage: parsed.data.coverImage || null,
+    bookingUrl: parsed.data.bookingUrl || null,
+    sortOrder: parsed.data.sortOrder,
+    featured: parsed.data.featured ?? true,
     status: parsed.data.status,
-    items: parsed.data.items,
   };
 
-  await gate.db.faq.upsert({
-    where: { categorySlug: parsed.data.categorySlug },
-    create: { categorySlug: parsed.data.categorySlug, ...data },
+  await gate.db.serviceCategory.upsert({
+    where: { slug: parsed.data.slug },
+    create: { slug: parsed.data.slug, ...data },
     update: data,
   });
 
@@ -37,10 +49,10 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
-  const parsed = z.object({ categorySlug: z.string().min(1) }).safeParse(await req.json());
+  const parsed = z.object({ slug: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
 
-  await gate.db.faq.delete({ where: { categorySlug: parsed.data.categorySlug } });
+  await gate.db.serviceCategory.delete({ where: { slug: parsed.data.slug } });
   revalidateSite();
   return NextResponse.json({ ok: true });
 }

@@ -34,14 +34,14 @@ export default async function CareIndexPage() {
         <div className="mx-auto max-w-4xl">
           <div className="border-t border-[var(--line)]">
             {guides.map((guide, index) => (
-              <ScrollReveal key={guide.serviceSlug} delay={index * 70}>
-                <Link href={`/care/${guide.serviceSlug}`} className="service-row group">
+              <ScrollReveal key={guide.categorySlug} delay={index * 70}>
+                <Link href={`/care/${guide.categorySlug}`} className="service-row group">
                   <span className="text-sm tracking-[0.18em] text-[var(--gold-deep)]">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <div>
                     <p className="text-[0.68rem] tracking-[0.18em] text-[var(--gold-deep)]">
-                      {titleBySlug[guide.serviceSlug] || guide.serviceSlug}
+                      {titleBySlug[guide.categorySlug] || guide.categorySlug}
                     </p>
                     <h2 className="display mt-2 text-2xl md:text-3xl">{guide.title}</h2>
                   </div>

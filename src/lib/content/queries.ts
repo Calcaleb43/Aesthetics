@@ -1,16 +1,18 @@
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { asWeeklyHours } from "@/lib/booking/money";
 import {
+  getSeedBookableServices,
   getSeedCare,
   getSeedCareGuides,
+  getSeedCategories,
+  getSeedCategory,
   getSeedFaq,
   getSeedFaqs,
   getSeedPage,
   getSeedPages,
-  getSeedService,
-  getSeedServices,
   getSeedSettings,
   type CareRecord,
+  type CategoryRecord,
   type FaqRecord,
   type PaymentMode,
   type PageRecord,
@@ -68,7 +70,7 @@ function mapPage(row: {
   };
 }
 
-function mapService(row: {
+function mapCategory(row: {
   id?: string;
   slug: string;
   title: string;
@@ -81,12 +83,7 @@ function mapService(row: {
   coverImage: string | null;
   bookingUrl: string | null;
   featured?: boolean;
-  durationMinutes?: number;
-  priceCents?: number;
-  depositCents?: number | null;
-  paymentMode?: string;
-  bookable?: boolean;
-}): ServiceRecord {
+}): CategoryRecord {
   return {
     id: row.id,
     slug: row.slug,
@@ -100,23 +97,51 @@ function mapService(row: {
     coverImage: row.coverImage,
     bookingUrl: row.bookingUrl,
     featured: row.featured ?? true,
-    durationMinutes: row.durationMinutes ?? 60,
-    priceCents: row.priceCents ?? 0,
-    depositCents: row.depositCents ?? null,
+  };
+}
+
+function mapBookableService(row: {
+  id?: string;
+  slug: string;
+  title: string;
+  summary: string;
+  sortOrder: number;
+  status: string;
+  durationMinutes: number;
+  priceCents: number;
+  depositCents: number | null;
+  paymentMode: string;
+  bookable: boolean;
+  categoryId?: string;
+  category?: { slug: string } | null;
+  categorySlug?: string;
+}): ServiceRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    summary: row.summary || "",
+    sortOrder: row.sortOrder,
+    status: row.status,
+    categorySlug: row.categorySlug || row.category?.slug || "",
+    categoryId: row.categoryId,
+    durationMinutes: row.durationMinutes,
+    priceCents: row.priceCents,
+    depositCents: row.depositCents,
     paymentMode: (row.paymentMode as PaymentMode) || "deposit",
-    bookable: row.bookable ?? true,
+    bookable: row.bookable,
   };
 }
 
 function mapFaq(row: {
-  serviceSlug: string;
+  categorySlug: string;
   title: string;
   intro: string;
   status: string;
   items: unknown;
 }): FaqRecord {
   return {
-    serviceSlug: row.serviceSlug,
+    categorySlug: row.categorySlug,
     title: row.title,
     intro: row.intro,
     status: row.status,
@@ -125,14 +150,14 @@ function mapFaq(row: {
 }
 
 function mapCare(row: {
-  serviceSlug: string;
+  categorySlug: string;
   title: string;
   status: string;
   content: string;
   coverImage: string | null;
 }): CareRecord {
   return {
-    serviceSlug: row.serviceSlug,
+    categorySlug: row.categorySlug,
     title: row.title,
     status: row.status,
     content: row.content,
@@ -178,47 +203,103 @@ export async function getSettings(): Promise<SiteSettings> {
   }
 }
 
-export async function getPublishedServices(): Promise<ServiceRecord[]> {
-  if (!hasDatabase()) return getSeedServices().filter((s) => s.status === "published");
+export async function getPublishedCategories(): Promise<CategoryRecord[]> {
+  if (!hasDatabase()) return getSeedCategories().filter((s) => s.status === "published");
   try {
-    const rows = await getPrisma().service.findMany({
+    const rows = await getPrisma().serviceCategory.findMany({
       where: { status: "published" },
       orderBy: { sortOrder: "asc" },
     });
-    return rows.map(mapService);
+    return rows.map(mapCategory);
   } catch {
-    return getSeedServices().filter((s) => s.status === "published");
+    return getSeedCategories().filter((s) => s.status === "published");
   }
 }
 
-export async function getFeaturedServices(): Promise<ServiceRecord[]> {
-  const published = await getPublishedServices();
+export async function getFeaturedCategories(): Promise<CategoryRecord[]> {
+  const published = await getPublishedCategories();
   const featured = published.filter((s) => s.featured !== false);
   return featured.length ? featured : published;
 }
 
-export async function getAdminServices(): Promise<ServiceRecord[]> {
-  if (!hasDatabase()) return getSeedServices();
+export async function getAdminCategories(): Promise<CategoryRecord[]> {
+  if (!hasDatabase()) return getSeedCategories();
   try {
-    const rows = await getPrisma().service.findMany({ orderBy: { sortOrder: "asc" } });
-    return rows.map(mapService);
+    const rows = await getPrisma().serviceCategory.findMany({ orderBy: { sortOrder: "asc" } });
+    return rows.map(mapCategory);
   } catch {
-    return getSeedServices();
+    return getSeedCategories();
   }
 }
 
-export async function getService(slug: string): Promise<ServiceRecord | null> {
+export async function getCategory(slug: string): Promise<CategoryRecord | null> {
   if (!hasDatabase()) {
-    const seed = getSeedService(slug);
+    const seed = getSeedCategory(slug);
     return seed?.status === "published" ? seed : null;
   }
   try {
-    const row = await getPrisma().service.findUnique({ where: { slug } });
+    const row = await getPrisma().serviceCategory.findUnique({ where: { slug } });
     if (!row || row.status !== "published") return null;
-    return mapService(row);
+    return mapCategory(row);
   } catch {
-    const seed = getSeedService(slug);
+    const seed = getSeedCategory(slug);
     return seed?.status === "published" ? seed : null;
+  }
+}
+
+/** Public marketing “services” = categories */
+export async function getPublishedServices(): Promise<CategoryRecord[]> {
+  return getPublishedCategories();
+}
+
+export async function getFeaturedServices(): Promise<CategoryRecord[]> {
+  return getFeaturedCategories();
+}
+
+export async function getService(slug: string): Promise<CategoryRecord | null> {
+  return getCategory(slug);
+}
+
+export async function getAdminBookableServices(): Promise<ServiceRecord[]> {
+  if (!hasDatabase()) return getSeedBookableServices();
+  try {
+    const rows = await getPrisma().service.findMany({
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+      include: { category: { select: { slug: true } } },
+    });
+    return rows.map(mapBookableService);
+  } catch {
+    return getSeedBookableServices();
+  }
+}
+
+export async function getPublishedBookableServices(categorySlug?: string): Promise<ServiceRecord[]> {
+  if (!hasDatabase()) {
+    return getSeedBookableServices().filter(
+      (s) =>
+        s.status === "published" &&
+        s.bookable &&
+        (!categorySlug || s.categorySlug === categorySlug),
+    );
+  }
+  try {
+    const rows = await getPrisma().service.findMany({
+      where: {
+        status: "published",
+        bookable: true,
+        ...(categorySlug ? { category: { slug: categorySlug } } : {}),
+      },
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+      include: { category: { select: { slug: true } } },
+    });
+    return rows.map(mapBookableService);
+  } catch {
+    return getSeedBookableServices().filter(
+      (s) =>
+        s.status === "published" &&
+        s.bookable &&
+        (!categorySlug || s.categorySlug === categorySlug),
+    );
   }
 }
 
@@ -247,17 +328,17 @@ export async function getAllPages(): Promise<PageRecord[]> {
   }
 }
 
-export async function getFaq(serviceSlug: string): Promise<FaqRecord | null> {
+export async function getFaq(categorySlug: string): Promise<FaqRecord | null> {
   if (!hasDatabase()) {
-    const seed = getSeedFaq(serviceSlug);
+    const seed = getSeedFaq(categorySlug);
     return seed?.status === "published" ? seed : null;
   }
   try {
-    const row = await getPrisma().faq.findUnique({ where: { serviceSlug } });
+    const row = await getPrisma().faq.findUnique({ where: { categorySlug } });
     if (!row || row.status !== "published") return null;
     return mapFaq(row);
   } catch {
-    const seed = getSeedFaq(serviceSlug);
+    const seed = getSeedFaq(categorySlug);
     return seed?.status === "published" ? seed : null;
   }
 }
@@ -285,17 +366,17 @@ export async function getAdminFaqs(): Promise<FaqRecord[]> {
   }
 }
 
-export async function getCare(serviceSlug: string): Promise<CareRecord | null> {
+export async function getCare(categorySlug: string): Promise<CareRecord | null> {
   if (!hasDatabase()) {
-    const seed = getSeedCare(serviceSlug);
+    const seed = getSeedCare(categorySlug);
     return seed?.status === "published" ? seed : null;
   }
   try {
-    const row = await getPrisma().careGuide.findUnique({ where: { serviceSlug } });
+    const row = await getPrisma().careGuide.findUnique({ where: { categorySlug } });
     if (!row || row.status !== "published") return null;
     return mapCare(row);
   } catch {
-    const seed = getSeedCare(serviceSlug);
+    const seed = getSeedCare(categorySlug);
     return seed?.status === "published" ? seed : null;
   }
 }
@@ -418,6 +499,18 @@ export type DashboardAppointment = {
   staffName: string | null;
 };
 
+function appointmentTitle(row: {
+  serviceLabel: string | null;
+  service: { title: string } | null;
+  lines: { title: string }[];
+  category: { title: string } | null;
+}) {
+  if (row.serviceLabel) return row.serviceLabel;
+  if (row.lines.length) return row.lines.map((l) => l.title).join(", ");
+  if (row.service?.title) return row.service.title;
+  return row.category?.title || "Appointment";
+}
+
 export async function getAppointmentDashboard() {
   if (!hasDatabase()) {
     return {
@@ -463,7 +556,9 @@ export async function getAppointmentDashboard() {
         take: 8,
         include: {
           service: { select: { title: true } },
+          category: { select: { title: true } },
           staff: { select: { name: true } },
+          lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
         },
       }),
     ]);
@@ -480,7 +575,7 @@ export async function getAppointmentDashboard() {
         endsAt: row.endsAt.toISOString(),
         clientName: row.clientName,
         clientEmail: row.clientEmail,
-        serviceTitle: row.serviceLabel || row.service.title,
+        serviceTitle: appointmentTitle(row),
         staffName: row.staff?.name || null,
       })),
     };

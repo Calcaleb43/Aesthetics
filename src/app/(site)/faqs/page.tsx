@@ -34,15 +34,15 @@ export default async function FaqsIndexPage() {
         <div className="mx-auto max-w-4xl">
           <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
             {faqs.map((faq, index) => (
-              <ScrollReveal key={faq.serviceSlug} delay={index * 70}>
+              <ScrollReveal key={faq.categorySlug} delay={index * 70}>
                 <Link
-                  href={`/faqs/${faq.serviceSlug}`}
+                  href={`/faqs/${faq.categorySlug}`}
                   className="flex items-center justify-between gap-4 py-6 transition hover:pl-2"
                 >
                   <div>
                     <p className="display text-2xl md:text-3xl">{faq.title}</p>
                     <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                      {titleBySlug[faq.serviceSlug] || faq.serviceSlug} · {faq.items.length} questions
+                      {titleBySlug[faq.categorySlug] || faq.categorySlug} · {faq.items.length} questions
                     </p>
                   </div>
                   <span className="text-xs uppercase tracking-[0.16em] text-[var(--gold-deep)]">View →</span>

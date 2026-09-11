@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { addHours } from "date-fns";
+import { appointmentDisplayTitle } from "@/lib/booking/labels";
 import { emailAppointmentReminder } from "@/lib/email/resend";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { notifyAdmins } from "@/lib/notifications";
@@ -37,7 +38,12 @@ async function run(req: Request) {
       reminderSentAt: null,
       startsAt: { gte: windowStart, lte: windowEnd },
     },
-    include: { service: { select: { title: true } }, staff: { select: { id: true } } },
+    include: {
+      service: { select: { title: true } },
+      category: { select: { title: true } },
+      lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
+      staff: { select: { id: true } },
+    },
     take: 100,
   });
 
@@ -48,18 +54,19 @@ async function run(req: Request) {
       dateStyle: "full",
       timeStyle: "short",
     }).format(row.startsAt);
+    const serviceTitle = appointmentDisplayTitle(row);
 
     await emailAppointmentReminder({
       to: row.clientEmail,
       clientName: row.clientName,
-      serviceTitle: row.service.title,
+      serviceTitle,
       whenLabel,
     });
 
     await notifyAdmins(db, {
       type: "reminder_due",
       title: "Upcoming appointment",
-      body: `${row.clientName} · ${row.service.title} · ${whenLabel}`,
+      body: `${row.clientName} · ${serviceTitle} · ${whenLabel}`,
       includeStaffId: row.staffId,
       metadata: { appointmentId: row.id },
     });
