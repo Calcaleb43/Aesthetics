@@ -6,7 +6,7 @@ import {
   PENDING_HOLD_MINUTES,
   type BusyRange,
 } from "@/lib/booking/availability";
-import { findBookableServices, staffForAllServices } from "@/lib/booking/service";
+import { findBookableAddons, findBookableServices, staffForAllServices } from "@/lib/booking/service";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -22,6 +22,13 @@ function parseServiceIds(url: URL) {
   return [...new Set(ids)];
 }
 
+function parseAddonIds(url: URL) {
+  const multi = url.searchParams.getAll("addonIds");
+  const csv = url.searchParams.get("addonIds");
+  const fromMulti = multi.length > 1 ? multi : csv ? csv.split(",") : multi;
+  return [...new Set(fromMulti.filter((v): v is string => !!v && v.trim().length > 0).map((v) => v.trim()))];
+}
+
 export async function GET(req: Request) {
   if (!hasDatabase()) {
     return NextResponse.json(
@@ -32,6 +39,7 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const serviceIds = parseServiceIds(url);
+  const addonIds = parseAddonIds(url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
 
@@ -56,10 +64,18 @@ export async function GET(req: Request) {
 
     const services = await findBookableServices(db, serviceIds);
     if (!services) {
-      return NextResponse.json({ error: "Services not found or must share one category" }, { status: 404 });
+      return NextResponse.json({ error: "Services not found" }, { status: 404 });
     }
 
-    const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
+    const categoryIds = [...new Set(services.map((s) => s.categoryId))];
+    const addons = addonIds.length ? await findBookableAddons(db, addonIds, categoryIds) : [];
+    if (addons === null) {
+      return NextResponse.json({ error: "Add-ons not available for the selected services" }, { status: 404 });
+    }
+
+    const durationMinutes =
+      services.reduce((sum, s) => sum + s.durationMinutes, 0) +
+      addons.reduce((sum, a) => sum + a.durationMinutes, 0);
     const from = fromParam ? new Date(fromParam) : new Date();
     const to = toParam ? new Date(toParam) : addDays(from, 14);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
@@ -159,7 +175,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       serviceIds: services.map((s) => s.id),
-      categoryId: services[0].categoryId,
+      addonIds: addons.map((a) => a.id),
+      categoryIds,
       timezone: settings.timezone,
       durationMinutes,
       slots,

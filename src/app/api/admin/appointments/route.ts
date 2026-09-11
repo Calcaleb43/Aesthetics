@@ -232,9 +232,6 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Service not found" }, { status: 404 });
     }
     const categoryId = services[0].categoryId;
-    if (services.some((s) => s.categoryId !== categoryId)) {
-      return NextResponse.json({ error: "Services must share one category" }, { status: 400 });
-    }
     nextServiceIds = services.map((s) => s.id);
     data.categoryId = categoryId;
     data.serviceId = services[0].id;
@@ -372,10 +369,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }
   const categoryId = services[0].categoryId;
-  if (services.some((s) => s.categoryId !== categoryId)) {
-    return NextResponse.json({ error: "Services must share one category" }, { status: 400 });
-  }
-
   const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
   const priceCents = services.reduce((sum, s) => sum + s.priceCents, 0);
   const depositCents = services.reduce((sum, s) => sum + (s.depositCents || 0), 0) || null;

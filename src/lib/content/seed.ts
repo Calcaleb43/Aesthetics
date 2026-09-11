@@ -74,6 +74,21 @@ export type ServiceRecord = {
   id?: string;
 };
 
+export type AddonRecord = {
+  slug: string;
+  title: string;
+  summary: string;
+  sortOrder: number;
+  status: string;
+  durationMinutes: number;
+  priceCents: number;
+  depositCents: number | null;
+  paymentMode: PaymentMode;
+  bookable: boolean;
+  categorySlugs: string[];
+  id?: string;
+};
+
 /** @deprecated Use CategoryRecord — alias for site pages that still say “service” for categories */
 export type ServiceCategoryRecord = CategoryRecord;
 

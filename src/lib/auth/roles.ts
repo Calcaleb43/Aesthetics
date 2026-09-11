@@ -55,6 +55,7 @@ export function navVisible(role: AdminRole, href: string) {
     href.startsWith("/admin/pages") ||
     href.startsWith("/admin/media") ||
     href.startsWith("/admin/services") ||
+    href.startsWith("/admin/addons") ||
     href.startsWith("/admin/categories") ||
     href.startsWith("/admin/faqs") ||
     href.startsWith("/admin/care") ||

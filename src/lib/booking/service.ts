@@ -22,7 +22,7 @@ export async function findBookableService(db: PrismaClient, serviceIdOrSlug: str
   });
 }
 
-/** Resolve many published bookable services; all must belong to the same category. */
+/** Resolve many published bookable services (any mix of categories). */
 export async function findBookableServices(db: PrismaClient, serviceIds: string[]) {
   const ids = [...new Set(serviceIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return null;
@@ -34,13 +34,52 @@ export async function findBookableServices(db: PrismaClient, serviceIds: string[
       bookable: true,
     },
     include: { category: true },
+    orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+  });
+
+  if (rows.length !== ids.length) return null;
+  return rows;
+}
+
+/** Resolve published bookable addons; optionally filter to those eligible for selected category ids. */
+export async function findBookableAddons(db: PrismaClient, addonIds: string[], categoryIds?: string[]) {
+  const ids = [...new Set(addonIds.map((id) => id.trim()).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const rows = await db.addon.findMany({
+    where: {
+      id: { in: ids },
+      status: "published",
+      bookable: true,
+    },
+    include: { categories: { select: { categoryId: true } } },
     orderBy: { sortOrder: "asc" },
   });
 
   if (rows.length !== ids.length) return null;
-  const categoryId = rows[0]?.categoryId;
-  if (!categoryId || rows.some((r) => r.categoryId !== categoryId)) return null;
+
+  if (categoryIds?.length) {
+    const allowed = new Set(categoryIds);
+    for (const row of rows) {
+      if (!row.categories.length) continue;
+      if (!row.categories.some((c) => allowed.has(c.categoryId))) return null;
+    }
+  }
+
   return rows;
+}
+
+export async function listEligibleAddons(db: PrismaClient, categoryIds: string[]) {
+  const rows = await db.addon.findMany({
+    where: { status: "published", bookable: true },
+    include: { categories: { select: { categoryId: true, category: { select: { slug: true } } } } },
+    orderBy: { sortOrder: "asc" },
+  });
+
+  if (!categoryIds.length) return rows.filter((r) => !r.categories.length);
+
+  const allowed = new Set(categoryIds);
+  return rows.filter((row) => !row.categories.length || row.categories.some((c) => allowed.has(c.categoryId)));
 }
 
 export async function findPublishedCategory(db: PrismaClient, categoryIdOrSlug: string) {

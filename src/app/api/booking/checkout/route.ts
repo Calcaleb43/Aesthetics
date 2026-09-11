@@ -10,7 +10,7 @@ import {
 import { announceAppointmentBooked } from "@/lib/booking/announce";
 import { upsertClient } from "@/lib/booking/clients";
 import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
-import { findBookableServices, staffForAllServices } from "@/lib/booking/service";
+import { findBookableAddons, findBookableServices, staffForAllServices } from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
@@ -19,6 +19,7 @@ import { getSettings } from "@/lib/content/queries";
 const schema = z.object({
   categoryId: z.string().uuid().optional(),
   serviceIds: z.array(z.string().uuid()).min(1),
+  addonIds: z.array(z.string().uuid()).optional(),
   startsAt: z.string().datetime(),
   staffId: z.string().uuid().nullable().optional(),
   clientName: z.string().min(1).max(160),
@@ -57,16 +58,26 @@ export async function POST(req: Request) {
 
   const services = await findBookableServices(db, parsed.data.serviceIds);
   if (!services) {
-    return NextResponse.json({ error: "Services not available or must share one category" }, { status: 404 });
+    return NextResponse.json({ error: "Services not available" }, { status: 404 });
   }
 
-  if (parsed.data.categoryId && services[0].categoryId !== parsed.data.categoryId) {
-    return NextResponse.json({ error: "Services do not match category" }, { status: 400 });
+  const categoryIds = [...new Set(services.map((s) => s.categoryId))];
+  if (parsed.data.categoryId && !categoryIds.includes(parsed.data.categoryId)) {
+    return NextResponse.json({ error: "Category does not match selected services" }, { status: 400 });
   }
 
-  const categoryId = services[0].categoryId;
-  const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
-  const titles = services.map((s) => s.title);
+  const addons = parsed.data.addonIds?.length
+    ? await findBookableAddons(db, parsed.data.addonIds, categoryIds)
+    : [];
+  if (addons === null) {
+    return NextResponse.json({ error: "Add-ons not available for the selected services" }, { status: 404 });
+  }
+
+  const categoryId = parsed.data.categoryId || services[0].categoryId;
+  const durationMinutes =
+    services.reduce((sum, s) => sum + s.durationMinutes, 0) +
+    addons.reduce((sum, a) => sum + a.durationMinutes, 0);
+  const titles = [...services.map((s) => s.title), ...addons.map((a) => a.title)];
   const serviceLabel = titles.join(", ").slice(0, 255);
 
   const startsAt = new Date(parsed.data.startsAt);
@@ -194,7 +205,7 @@ export async function POST(req: Request) {
     staffId = null;
   }
 
-  const charge = multiChargeBreakdown(services, settings.hstRateBps);
+  const charge = multiChargeBreakdown([...services, ...addons], settings.hstRateBps);
   const instantlyConfirmed = charge.paymentMode === "none" || charge.totalCents <= 0;
 
   const clientName = parsed.data.clientName.trim();
@@ -235,6 +246,17 @@ export async function POST(req: Request) {
           priceCents: s.priceCents,
           depositCents: s.depositCents,
           paymentMode: s.paymentMode,
+          sortOrder: index,
+        })),
+      },
+      addons: {
+        create: addons.map((a, index) => ({
+          addonId: a.id,
+          title: a.title,
+          durationMinutes: a.durationMinutes,
+          priceCents: a.priceCents,
+          depositCents: a.depositCents,
+          paymentMode: a.paymentMode,
           sortOrder: index,
         })),
       },
@@ -284,6 +306,7 @@ export async function POST(req: Request) {
         appointmentId: appointment.id,
         categoryId,
         serviceIds: serviceIds.join(","),
+        addonIds: addons.map((a) => a.id).join(","),
         paymentMode: charge.paymentMode,
       },
       success_url: `${siteUrl()}/book-now/success?appointment=${appointment.id}&session_id={CHECKOUT_SESSION_ID}`,

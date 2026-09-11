@@ -16,6 +16,7 @@ import {
   type FaqRecord,
   type PaymentMode,
   type PageRecord,
+  type AddonRecord,
   type ServiceRecord,
   type SiteSettings,
   type TestimonialRecord,
@@ -130,6 +131,39 @@ function mapBookableService(row: {
     depositCents: row.depositCents,
     paymentMode: (row.paymentMode as PaymentMode) || "deposit",
     bookable: row.bookable,
+  };
+}
+
+function mapAddon(row: {
+  id?: string;
+  slug: string;
+  title: string;
+  summary: string;
+  sortOrder: number;
+  status: string;
+  durationMinutes: number;
+  priceCents: number;
+  depositCents: number | null;
+  paymentMode: string;
+  bookable: boolean;
+  categories?: { category: { slug: string } }[];
+  categorySlugs?: string[];
+}): AddonRecord {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    summary: row.summary || "",
+    sortOrder: row.sortOrder,
+    status: row.status,
+    durationMinutes: row.durationMinutes,
+    priceCents: row.priceCents,
+    depositCents: row.depositCents,
+    paymentMode: (row.paymentMode as PaymentMode) || "deposit",
+    bookable: row.bookable,
+    categorySlugs:
+      row.categorySlugs ||
+      (row.categories || []).map((c) => c.category.slug).filter(Boolean),
   };
 }
 
@@ -273,6 +307,19 @@ export async function getAdminBookableServices(): Promise<ServiceRecord[]> {
     return rows.map(mapBookableService);
   } catch {
     return getSeedBookableServices();
+  }
+}
+
+export async function getAdminAddons(): Promise<AddonRecord[]> {
+  if (!hasDatabase()) return [];
+  try {
+    const rows = await getPrisma().addon.findMany({
+      orderBy: { sortOrder: "asc" },
+      include: { categories: { include: { category: { select: { slug: true } } } } },
+    });
+    return rows.map(mapAddon);
+  } catch {
+    return [];
   }
 }
 

@@ -345,20 +345,12 @@ export function AdminCalendar({
       const nextIds = f.serviceIds.includes(serviceId)
         ? f.serviceIds.filter((id) => id !== serviceId)
         : [...f.serviceIds, serviceId];
-      const categorySlug = initialServices.find((s) => s.id === serviceId)?.categorySlug;
-      const filtered =
-        categorySlug && nextIds.includes(serviceId)
-          ? nextIds.filter((id) => {
-              const opt = initialServices.find((s) => s.id === id);
-              return !opt?.categorySlug || opt.categorySlug === categorySlug;
-            })
-          : nextIds;
-      const allowed = staffForServices(filtered, f.staffId);
+      const allowed = staffForServices(nextIds, f.staffId);
       const staffStillOk = !f.staffId || allowed.some((s) => s.id === f.staffId);
-      const hasAssignees = staff.some((s) => filtered.every((id) => s.serviceIds.includes(id)));
+      const hasAssignees = staff.some((s) => nextIds.every((id) => s.serviceIds.includes(id)));
       return {
         ...f,
-        serviceIds: filtered,
+        serviceIds: nextIds,
         staffId: staffStillOk
           ? f.staffId
           : hasAssignees
@@ -873,7 +865,7 @@ export function AdminCalendar({
                 >
                   {drawer === "create" ? (
                     <fieldset className="grid gap-2 text-sm text-white/70">
-                      <legend className="mb-1">Services (same category)</legend>
+                      <legend className="mb-1">Services</legend>
                       <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">
                         {initialServices.map((s) => {
                           const checked = form.serviceIds.includes(s.id);

@@ -18,6 +18,7 @@ import {
   Users,
   UserRound,
   X,
+  PlusCircle,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -55,6 +56,7 @@ const groups: NavGroup[] = [
       { href: "/admin/pages", label: "Pages", icon: FileText },
       { href: "/admin/categories", label: "Categories", icon: FolderTree },
       { href: "/admin/services", label: "Services", icon: Sparkles },
+      { href: "/admin/addons", label: "Add-ons", icon: PlusCircle },
       { href: "/admin/faqs", label: "FAQs", icon: HelpCircle },
       { href: "/admin/care", label: "Care Guides", icon: BookOpen },
       { href: "/admin/testimonials", label: "Testimonials", icon: Star },

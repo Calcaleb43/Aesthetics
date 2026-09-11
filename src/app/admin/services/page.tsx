@@ -18,7 +18,7 @@ export default async function AdminServicesPage({
   return (
     <AdminShell
       title="Services"
-      description="Bookable service kinds under each category. Clients can multi-select these during booking."
+      description="Bookable service kinds under each category. Clients can multi-select across categories during booking."
     >
       <CollectionWorkspace
         items={services.map((service) => ({
