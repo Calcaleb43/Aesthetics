@@ -29,7 +29,10 @@ export async function GET() {
     });
 
     const categories = await db.serviceCategory.findMany({
-      where: { status: "published" },
+      where: {
+        status: "published",
+        NOT: { slug: "imported-acuity" },
+      },
       orderBy: { sortOrder: "asc" },
       include: {
         services: {

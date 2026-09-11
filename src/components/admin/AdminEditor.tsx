@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 type Field = {
   name: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "json" | "url-list" | "value-list" | "boolean" | "faq-items";
+  type?: "text" | "textarea" | "select" | "number" | "money" | "json" | "url-list" | "value-list" | "boolean" | "faq-items";
   options?: string[];
   rows?: number;
   hint?: string;
@@ -20,6 +20,14 @@ type ValueItem = { title: string; body: string };
 function stringifyInitial(value: unknown, type?: Field["type"]) {
   if (type === "boolean") return value ? "true" : "false";
   if (type === "url-list") return Array.isArray(value) ? (value as string[]).join("\n") : "";
+  if (type === "money") {
+    if (value == null || value === "") return "";
+    const cents = typeof value === "number" ? value : Number(value);
+    if (Number.isNaN(cents)) return "";
+    // Show whole dollars without trailing zeros when possible (85 not 85.00)
+    const dollars = cents / 100;
+    return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+  }
   if (typeof value === "string") return value;
   if (value == null) return "";
   return JSON.stringify(value, null, 2);
@@ -77,7 +85,15 @@ export function AdminEditor({
     for (const field of fields) {
       const raw = values[field.name] ?? "";
       if (field.type === "number") payload[field.name] = Number(raw);
-      else if (field.type === "boolean") payload[field.name] = raw === "true";
+      else if (field.type === "money") {
+        const dollars = raw.trim() === "" ? null : Number(raw);
+        if (dollars != null && Number.isNaN(dollars)) {
+          setStatus({ tone: "err", text: `Invalid amount in ${field.label}` });
+          setSaving(false);
+          return;
+        }
+        payload[field.name] = dollars == null ? null : Math.round(dollars * 100);
+      } else if (field.type === "boolean") payload[field.name] = raw === "true";
       else if (field.type === "url-list") {
         payload[field.name] = raw
           .split("\n")
@@ -290,7 +306,10 @@ export function AdminEditor({
               </select>
             ) : (
               <input
-                type={field.type === "number" ? "number" : "text"}
+                type={field.type === "number" || field.type === "money" ? "number" : "text"}
+                step={field.type === "money" ? "0.01" : undefined}
+                min={field.type === "money" || field.type === "number" ? "0" : undefined}
+                inputMode={field.type === "money" ? "decimal" : undefined}
                 className="admin-input"
                 readOnly={field.readOnly}
                 value={values[field.name] || ""}

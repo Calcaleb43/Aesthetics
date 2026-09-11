@@ -207,7 +207,10 @@ export async function getPublishedCategories(): Promise<CategoryRecord[]> {
   if (!hasDatabase()) return getSeedCategories().filter((s) => s.status === "published");
   try {
     const rows = await getPrisma().serviceCategory.findMany({
-      where: { status: "published" },
+      where: {
+        status: "published",
+        NOT: { slug: "imported-acuity" },
+      },
       orderBy: { sortOrder: "asc" },
     });
     return rows.map(mapCategory);

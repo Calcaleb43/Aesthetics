@@ -61,8 +61,18 @@ export default async function AdminServicesPage({
           { name: "title", label: "Title" },
           { name: "summary", label: "Summary", type: "textarea", rows: 3 },
           { name: "durationMinutes", label: "Duration (minutes)", type: "number" },
-          { name: "priceCents", label: "Price (cents, before tax)", type: "number", hint: "e.g. 50000 = $500.00" },
-          { name: "depositCents", label: "Deposit (cents, before tax)", type: "number" },
+          {
+            name: "priceCents",
+            label: "Price (CAD, before tax)",
+            type: "money",
+            hint: "Enter dollars — e.g. 85 for $85.00",
+          },
+          {
+            name: "depositCents",
+            label: "Deposit (CAD, before tax)",
+            type: "money",
+            hint: "Enter dollars — e.g. 50 for $50.00. Leave blank for none.",
+          },
           {
             name: "paymentMode",
             label: "Payment at booking",

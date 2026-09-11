@@ -7,6 +7,18 @@ export function formatCad(cents: number) {
   return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(cents / 100);
 }
 
+/** Convert stored cents → dollars for admin forms (e.g. 8500 → 85). */
+export function centsToDollars(cents: number | null | undefined) {
+  if (cents == null || Number.isNaN(cents)) return null;
+  return Math.round(cents) / 100;
+}
+
+/** Convert dollars from admin forms → cents (e.g. 85 or 85.50 → 8500 / 8550). */
+export function dollarsToCents(dollars: number | null | undefined) {
+  if (dollars == null || Number.isNaN(dollars)) return null;
+  return Math.round(dollars * 100);
+}
+
 export function taxOn(amountCents: number, hstRateBps: number) {
   return Math.round((amountCents * hstRateBps) / 10000);
 }

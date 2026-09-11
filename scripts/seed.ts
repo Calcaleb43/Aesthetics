@@ -110,6 +110,7 @@ async function main() {
     });
     categoryIdBySlug.set(category.slug, row.id);
   }
+  console.log(`Categories upserted: ${seed.categories.length}`);
 
   for (const service of seed.services) {
     const categoryId = categoryIdBySlug.get(service.categorySlug);
@@ -145,6 +146,17 @@ async function main() {
       },
     });
   }
+  console.log(`Bookable services upserted: ${seed.services.length}`);
+
+  // Keep Acuity catch-all off public menus if the import created it.
+  await prisma.serviceCategory.updateMany({
+    where: { slug: "imported-acuity", status: "published" },
+    data: { status: "draft", featured: false },
+  });
+  await prisma.service.updateMany({
+    where: { slug: "imported-acuity", status: "published" },
+    data: { status: "draft", bookable: false },
+  });
 
   for (const faq of seed.faqs) {
     await prisma.faq.upsert({
