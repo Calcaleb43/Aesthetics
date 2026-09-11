@@ -16,6 +16,7 @@ import {
   type PageRecord,
   type ServiceRecord,
   type SiteSettings,
+  type TestimonialRecord,
 } from "./seed";
 
 type ValueItem = { title: string; body: string };
@@ -161,6 +162,8 @@ export async function getSettings(): Promise<SiteSettings> {
       whyBody: row.whyBody,
       values: asValueItems(row.values),
       meetAnie: row.meetAnie,
+      googleReviewsUrl: row.googleReviewsUrl || "",
+      googlePlaceId: row.googlePlaceId || "",
       timezone: row.timezone || "America/Toronto",
       weeklyHours: asWeeklyHours(row.weeklyHours),
       slotIntervalMinutes: row.slotIntervalMinutes ?? 30,
@@ -317,6 +320,53 @@ export async function getAdminCare(): Promise<CareRecord[]> {
     return rows.map(mapCare);
   } catch {
     return getSeedCareGuides();
+  }
+}
+
+function mapTestimonial(row: {
+  id: string;
+  quote: string;
+  authorName: string;
+  rating: number;
+  source: string;
+  sourceUrl: string | null;
+  sortOrder: number;
+  status: string;
+}): TestimonialRecord {
+  return {
+    id: row.id,
+    quote: row.quote,
+    authorName: row.authorName,
+    rating: row.rating,
+    source: row.source,
+    sourceUrl: row.sourceUrl,
+    sortOrder: row.sortOrder,
+    status: row.status,
+  };
+}
+
+export async function getPublishedTestimonials(): Promise<TestimonialRecord[]> {
+  if (!hasDatabase()) return [];
+  try {
+    const rows = await getPrisma().testimonial.findMany({
+      where: { status: "published" },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    });
+    return rows.map(mapTestimonial);
+  } catch {
+    return [];
+  }
+}
+
+export async function getAdminTestimonials(): Promise<TestimonialRecord[]> {
+  if (!hasDatabase()) return [];
+  try {
+    const rows = await getPrisma().testimonial.findMany({
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    });
+    return rows.map(mapTestimonial);
+  } catch {
+    return [];
   }
 }
 

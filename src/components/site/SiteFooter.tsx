@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { SiteSettings } from "@/lib/content/seed";
+import { SiteLogo } from "@/components/site/SiteLogo";
 
 function InstagramIcon({ size = 16 }: { size?: number }) {
   return (
@@ -19,7 +20,9 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
     <footer className="border-t border-white/10 bg-black text-white">
       <div className="mx-auto grid max-w-7xl gap-12 px-5 py-16 md:grid-cols-[1.3fr_1fr_1fr] lg:px-8">
         <div>
-          <p className="display text-3xl tracking-tight text-[var(--gold)] md:text-4xl">{settings.siteName}</p>
+          <Link href="/" aria-label={settings.siteName} className="inline-block max-w-[16rem]">
+            <SiteLogo className="h-14 w-auto max-w-full md:h-16" />
+          </Link>
           <p className="mt-5 max-w-md text-sm leading-7 text-white/65">{settings.tagline}</p>
           {bookExternal ? (
             <a href={bookHref} target="_blank" rel="noreferrer" className="btn btn-gold mt-8">

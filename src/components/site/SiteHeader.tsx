@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { ChevronDown, Menu, X } from "lucide-react";
+import { SiteLogo } from "@/components/site/SiteLogo";
 
 function InstagramIcon({ size = 16 }: { size?: number }) {
   return (
@@ -62,9 +63,10 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
       <div className="mx-auto grid max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-4 py-3 sm:gap-3 sm:px-5 sm:py-3.5 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:gap-6 lg:px-8 lg:py-4">
         <Link
           href="/"
-          className="min-w-0 justify-self-start text-[0.65rem] font-semibold leading-snug tracking-[0.1em] transition hover:text-[var(--gold-deep)] sm:text-[0.78rem] sm:tracking-[0.18em] sm:leading-normal"
+          className="min-w-0 justify-self-start transition hover:opacity-80"
+          aria-label={siteName}
         >
-          <span className="line-clamp-2 sm:line-clamp-1">{siteName}</span>
+          <SiteLogo priority className="h-10 sm:h-12" />
         </Link>
 
         <nav

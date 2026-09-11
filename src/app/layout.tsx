@@ -19,6 +19,10 @@ export const metadata: Metadata = {
   },
   description:
     "Brows, PMU, laser hair removal, ink-less scar and stretch mark revision, and cold plasma in Toronto.",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png" }],
+    apple: [{ url: "/apple-icon.png", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({

@@ -56,7 +56,8 @@ export function navVisible(role: AdminRole, href: string) {
     href.startsWith("/admin/media") ||
     href.startsWith("/admin/services") ||
     href.startsWith("/admin/faqs") ||
-    href.startsWith("/admin/care")
+    href.startsWith("/admin/care") ||
+    href.startsWith("/admin/testimonials")
   ) {
     return canManageCms(role);
   }

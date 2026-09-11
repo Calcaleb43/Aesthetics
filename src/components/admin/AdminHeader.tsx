@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { NotificationBell } from "@/components/admin/NotificationBell";
+import { SiteLogo } from "@/components/site/SiteLogo";
 import type { AdminRole } from "@/lib/auth/roles";
 
 export function AdminHeader({
@@ -17,9 +18,9 @@ export function AdminHeader({
     <header className="sticky top-0 z-40 border-b border-white/10 bg-[#0f0f0f]/90 backdrop-blur-xl">
       <div className="flex w-full items-center gap-4 px-5 py-3.5 lg:px-8">
         <div className="min-w-0 flex-1">
-          <Link href="/admin" className="group inline-flex min-w-0 flex-col">
-            <span className="text-[0.62rem] uppercase tracking-[0.22em] text-[#c6a75e]">Aniekanvas</span>
-            <span className="truncate text-sm font-semibold tracking-[0.08em] text-white transition group-hover:text-[#c6a75e]">
+          <Link href="/admin" className="group inline-flex min-w-0 items-center gap-3">
+            <SiteLogo className="h-9 w-auto max-w-[9.5rem]" />
+            <span className="hidden truncate text-sm font-semibold tracking-[0.08em] text-white transition group-hover:text-[#c6a75e] sm:inline">
               Content Management
             </span>
           </Link>

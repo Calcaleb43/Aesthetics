@@ -3,6 +3,16 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 import { ADMIN_ROLES } from "@/lib/auth/roles";
+import {
+  normalizeStaffWeeklyHours,
+  weeklyHoursSchema,
+} from "@/lib/booking/weekly-hours";
+import { Prisma } from "@/generated/prisma/client";
+
+function weeklyHoursWriteValue(value: unknown) {
+  const normalized = normalizeStaffWeeklyHours(value);
+  return normalized === null ? Prisma.DbNull : normalized;
+}
 
 export async function GET() {
   const gate = await requireAdminApi({ permission: "team" });
@@ -24,6 +34,7 @@ export async function GET() {
       active: row.active,
       color: row.color,
       phone: row.phone,
+      weeklyHours: normalizeStaffWeeklyHours(row.weeklyHours),
       serviceIds: row.services.map((s) => s.serviceId),
       services: row.services.map((s) => ({
         id: s.service.id,
@@ -43,6 +54,7 @@ const createSchema = z.object({
   phone: z.string().max(64).nullable().optional(),
   active: z.boolean().optional(),
   serviceIds: z.array(z.string().uuid()).optional(),
+  weeklyHours: weeklyHoursSchema.nullable().optional(),
 });
 
 export async function POST(req: Request) {
@@ -56,6 +68,11 @@ export async function POST(req: Request) {
   if (existing) return NextResponse.json({ error: "Email already in use" }, { status: 409 });
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  const weeklyHours =
+    parsed.data.weeklyHours === undefined
+      ? undefined
+      : weeklyHoursWriteValue(parsed.data.weeklyHours);
+
   const member = await gate.db.admin.create({
     data: {
       email,
@@ -65,6 +82,7 @@ export async function POST(req: Request) {
       color: parsed.data.color || "#c6a75e",
       phone: parsed.data.phone || null,
       active: parsed.data.active ?? true,
+      ...(weeklyHours !== undefined ? { weeklyHours } : {}),
       services: parsed.data.serviceIds?.length
         ? {
             create: parsed.data.serviceIds.map((serviceId) => ({ serviceId })),
@@ -85,6 +103,7 @@ const patchSchema = z.object({
   active: z.boolean().optional(),
   password: z.string().min(8).optional(),
   serviceIds: z.array(z.string().uuid()).optional(),
+  weeklyHours: weeklyHoursSchema.nullable().optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -110,6 +129,9 @@ export async function PATCH(req: Request) {
   if (parsed.data.phone !== undefined) data.phone = parsed.data.phone;
   if (parsed.data.active !== undefined) data.active = parsed.data.active;
   if (parsed.data.password) data.passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  if (parsed.data.weeklyHours !== undefined) {
+    data.weeklyHours = weeklyHoursWriteValue(parsed.data.weeklyHours);
+  }
 
   await gate.db.$transaction(async (tx) => {
     await tx.admin.update({ where: { id: parsed.data.id }, data });

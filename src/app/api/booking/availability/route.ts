@@ -7,6 +7,7 @@ import {
   type BusyRange,
 } from "@/lib/booking/availability";
 import { findBookableService } from "@/lib/booking/service";
+import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 
@@ -57,7 +58,7 @@ export async function GET(req: Request) {
 
     const assigned = await db.staffService.findMany({
       where: { serviceId: service.id, admin: { active: true } },
-      include: { admin: { select: { id: true, name: true } } },
+      include: { admin: { select: { id: true, name: true, weeklyHours: true } } },
       orderBy: { admin: { name: "asc" } },
     });
 
@@ -73,7 +74,6 @@ export async function GET(req: Request) {
 
     const baseInput = {
       timeZone: settings.timezone,
-      weeklyHours: settings.weeklyHours,
       slotIntervalMinutes: settings.slotIntervalMinutes,
       bufferMinutes: settings.bufferMinutes,
       minLeadHours: settings.minLeadHours,
@@ -98,7 +98,11 @@ export async function GET(req: Request) {
         ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
         ...studioBlocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
       ];
-      for (const s of computeAvailableSlots({ ...baseInput, busy })) {
+      for (const s of computeAvailableSlots({
+        ...baseInput,
+        weeklyHours: settings.weeklyHours,
+        busy,
+      })) {
         slots.push({ ...s, staffId: null, staffName: null });
       }
     } else {
@@ -127,7 +131,11 @@ export async function GET(req: Request) {
           ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
           ...staffBlocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
         ];
-        for (const s of computeAvailableSlots({ ...baseInput, busy })) {
+        for (const s of computeAvailableSlots({
+          ...baseInput,
+          weeklyHours: effectiveWeeklyHours(row.admin.weeklyHours, settings.weeklyHours),
+          busy,
+        })) {
           if (!byStart.has(s.start)) {
             byStart.set(s.start, {
               ...s,

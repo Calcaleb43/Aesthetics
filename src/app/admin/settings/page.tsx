@@ -24,6 +24,16 @@ export default async function AdminSettingsPage() {
             { name: "address", label: "Address", type: "textarea", rows: 3 },
             { name: "instagramUrl", label: "Instagram URL" },
             { name: "bookingUrl", label: "External booking URL (fallback)" },
+            {
+              name: "googleReviewsUrl",
+              label: "Google reviews URL",
+              hint: "Public Maps / Business Profile link for “See all reviews”",
+            },
+            {
+              name: "googlePlaceId",
+              label: "Google Place ID",
+              hint: "From Google Maps / Place ID finder. Requires GOOGLE_PLACES_API_KEY in env.",
+            },
             { name: "bookingEnabled", label: "Native online booking enabled", type: "boolean" },
             { name: "timezone", label: "Timezone", hint: "e.g. America/Toronto" },
             {

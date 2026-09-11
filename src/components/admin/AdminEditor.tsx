@@ -114,7 +114,7 @@ export function AdminEditor({
     }
 
     setStatus({ tone: "ok", text: "Saved successfully" });
-    onSaved?.(payload);
+    onSaved?.({ ...payload, ...(typeof body === "object" && body ? body : {}) });
     router.refresh();
   }
 

@@ -12,6 +12,7 @@ import { upsertClient } from "@/lib/booking/clients";
 import { chargeBreakdown, formatCad } from "@/lib/booking/money";
 import { findBookableService } from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
+import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
 
   const assigned = await db.staffService.findMany({
     where: { serviceId: service.id, admin: { active: true } },
-    include: { admin: { select: { id: true, name: true } } },
+    include: { admin: { select: { id: true, name: true, weeklyHours: true } } },
     orderBy: { admin: { name: "asc" } },
   });
 
@@ -126,7 +127,7 @@ export async function POST(req: Request) {
         ];
         const open = computeAvailableSlots({
           timeZone: settings.timezone,
-          weeklyHours: settings.weeklyHours,
+          weeklyHours: effectiveWeeklyHours(row.admin.weeklyHours, settings.weeklyHours),
           slotIntervalMinutes: settings.slotIntervalMinutes,
           bufferMinutes: settings.bufferMinutes,
           minLeadHours: settings.minLeadHours,

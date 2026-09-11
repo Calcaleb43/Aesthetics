@@ -22,6 +22,8 @@ const schema = z.object({
   whyBody: z.string(),
   values: z.array(z.object({ title: z.string(), body: z.string() })),
   meetAnie: z.string(),
+  googleReviewsUrl: z.string().optional(),
+  googlePlaceId: z.string().optional(),
   timezone: z.string().optional(),
   weeklyHours: z.record(z.string(), z.array(windowSchema)).optional(),
   slotIntervalMinutes: z.number().int().positive().optional(),
@@ -40,6 +42,8 @@ export async function PUT(req: Request) {
 
   const data = {
     ...parsed.data,
+    googleReviewsUrl: parsed.data.googleReviewsUrl || "",
+    googlePlaceId: parsed.data.googlePlaceId?.trim() || "",
     timezone: parsed.data.timezone || "America/Toronto",
     weeklyHours: parsed.data.weeklyHours || {},
     slotIntervalMinutes: parsed.data.slotIntervalMinutes ?? 30,

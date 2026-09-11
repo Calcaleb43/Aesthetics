@@ -6,8 +6,10 @@ import { requireAdminApi } from "@/lib/auth/admin-api";
 import { canManageAllAppointments, canWriteAppointments } from "@/lib/auth/roles";
 import { upsertClient } from "@/lib/booking/clients";
 import { activeHoldStatuses } from "@/lib/booking/availability";
-import { formatCad } from "@/lib/booking/money";
+import { asWeeklyHours, formatCad } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
+import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
+import type { Database } from "@/lib/db";
 import { emailAppointmentCancelled } from "@/lib/email/resend";
 import { notifyAdmins } from "@/lib/notifications";
 
@@ -17,6 +19,34 @@ function whenLabel(startsAt: Date, timeZone: string) {
     dateStyle: "full",
     timeStyle: "short",
   }).format(startsAt);
+}
+
+async function assertStaffForService(db: Database, serviceId: string, staffId: string | null) {
+  const assigned = await db.staffService.findMany({
+    where: { serviceId, admin: { active: true } },
+    select: { adminId: true },
+  });
+
+  if (!assigned.length) {
+    return { ok: true as const };
+  }
+
+  if (!staffId) {
+    return {
+      ok: false as const,
+      error: "Select a team member assigned to this service",
+    };
+  }
+
+  const match = assigned.some((a) => a.adminId === staffId);
+  if (!match) {
+    return {
+      ok: false as const,
+      error: "That team member is not assigned to this service",
+    };
+  }
+
+  return { ok: true as const };
 }
 
 export async function GET(req: Request) {
@@ -46,30 +76,52 @@ export async function GET(req: Request) {
     where.staffId = staffId;
   }
 
-  const rows = await gate.db.appointment.findMany({
-    where,
-    include: {
-      service: { select: { id: true, title: true, slug: true } },
-      staff: { select: { id: true, name: true, color: true } },
-    },
-    orderBy: { startsAt: "asc" },
-    take: 500,
-  });
+  const [rows, staff, settings, staffServices] = await Promise.all([
+    gate.db.appointment.findMany({
+      where,
+      include: {
+        service: { select: { id: true, title: true, slug: true } },
+        staff: { select: { id: true, name: true, color: true } },
+      },
+      orderBy: { startsAt: "asc" },
+      take: 500,
+    }),
+    gate.db.admin.findMany({
+      where: {
+        active: true,
+        OR: [{ role: { in: ["staff", "owner", "manager"] } }],
+      },
+      select: { id: true, name: true, color: true, role: true, weeklyHours: true },
+      orderBy: { name: "asc" },
+    }),
+    gate.db.siteSettings.findUnique({ where: { id: 1 } }),
+    gate.db.staffService.findMany({
+      where: { admin: { active: true } },
+      select: { adminId: true, serviceId: true },
+    }),
+  ]);
 
-  const staff = await gate.db.admin.findMany({
-    where: {
-      active: true,
-      OR: [{ role: { in: ["staff", "owner", "manager"] } }],
-    },
-    select: { id: true, name: true, color: true, role: true },
-    orderBy: { name: "asc" },
-  });
+  const serviceIdsByStaff = new Map<string, string[]>();
+  for (const row of staffServices) {
+    const list = serviceIdsByStaff.get(row.adminId) || [];
+    list.push(row.serviceId);
+    serviceIdsByStaff.set(row.adminId, list);
+  }
 
   return NextResponse.json({
     role: gate.session.role,
     canWrite: canWriteAppointments(gate.session.role),
     canManageAll: canManageAllAppointments(gate.session.role),
-    staff,
+    timezone: settings?.timezone || "America/Toronto",
+    studioWeeklyHours: asWeeklyHours(settings?.weeklyHours),
+    staff: staff.map((s) => ({
+      id: s.id,
+      name: s.name,
+      color: s.color,
+      role: s.role,
+      serviceIds: serviceIdsByStaff.get(s.id) || [],
+      weeklyHours: normalizeStaffWeeklyHours(s.weeklyHours),
+    })),
     appointments: rows.map((row) => ({
       id: row.id,
       status: row.status,
@@ -143,10 +195,32 @@ export async function PATCH(req: Request) {
       data.staffId = parsed.data.staffId;
     }
   }
+
+  const nextServiceId =
+    (data.serviceId as string | undefined) ?? existing.serviceId;
+  const nextStaffId =
+    data.staffId !== undefined ? (data.staffId as string | null) : existing.staffId;
+
+  if (parsed.data.staffId !== undefined || parsed.data.serviceId !== undefined) {
+    const staffCheck = await assertStaffForService(gate.db, nextServiceId, nextStaffId);
+    if (!staffCheck.ok) {
+      return NextResponse.json({ error: staffCheck.error }, { status: 400 });
+    }
+  }
+
   if (parsed.data.startsAt) {
     data.startsAt = new Date(parsed.data.startsAt);
     if (parsed.data.endsAt) data.endsAt = new Date(parsed.data.endsAt);
-    else data.endsAt = addMinutes(new Date(parsed.data.startsAt), existing.service.durationMinutes);
+    else {
+      const service =
+        parsed.data.serviceId && parsed.data.serviceId !== existing.serviceId
+          ? await gate.db.service.findUnique({ where: { id: parsed.data.serviceId } })
+          : existing.service;
+      data.endsAt = addMinutes(
+        new Date(parsed.data.startsAt),
+        service?.durationMinutes ?? existing.service.durationMinutes,
+      );
+    }
   } else if (parsed.data.endsAt) {
     data.endsAt = new Date(parsed.data.endsAt);
   }
@@ -224,6 +298,11 @@ export async function POST(req: Request) {
 
   let staffId = parsed.data.staffId ?? null;
   if (gate.session.role === "staff") staffId = gate.session.sub;
+
+  const staffCheck = await assertStaffForService(gate.db, service.id, staffId);
+  if (!staffCheck.ok) {
+    return NextResponse.json({ error: staffCheck.error }, { status: 400 });
+  }
 
   const clientName = parsed.data.clientName.trim();
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();

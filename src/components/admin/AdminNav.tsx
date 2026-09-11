@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Settings,
   Sparkles,
+  Star,
   Users,
   UserRound,
   X,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { navVisible, type AdminRole } from "@/lib/auth/roles";
+import { SiteLogo } from "@/components/site/SiteLogo";
 
 type NavLink = {
   href: string;
@@ -53,6 +55,7 @@ const groups: NavGroup[] = [
       { href: "/admin/services", label: "Services", icon: Sparkles },
       { href: "/admin/faqs", label: "FAQs", icon: HelpCircle },
       { href: "/admin/care", label: "Care Guides", icon: BookOpen },
+      { href: "/admin/testimonials", label: "Testimonials", icon: Star },
       { href: "/admin/media", label: "Media", icon: ImageIcon },
     ],
   },
@@ -106,8 +109,8 @@ export function AdminNav({
   const navBody = (
     <>
       <div className="mb-6 hidden lg:block">
-        <p className="text-[0.62rem] uppercase tracking-[0.2em] text-[#c6a75e]">Studio CMS</p>
-        <p className="mt-1 text-sm font-medium text-white/85">Aniekanvas</p>
+        <SiteLogo className="h-10 w-auto max-w-[10rem]" />
+        <p className="mt-2 text-[0.62rem] uppercase tracking-[0.2em] text-[#c6a75e]">Studio CMS</p>
       </div>
 
       <nav className="flex flex-1 flex-col gap-6">

@@ -1,7 +1,9 @@
 "use client";
 
 import { FormEvent, useEffect, useState, useTransition } from "react";
+import { WeeklyHoursEditor } from "@/components/admin/WeeklyHoursEditor";
 import { ADMIN_ROLES, type AdminRole } from "@/lib/auth/roles";
+import type { WeeklyHours } from "@/lib/booking/money";
 
 type ServiceOption = { id: string; title: string; slug: string };
 
@@ -13,6 +15,7 @@ type Member = {
   active: boolean;
   color: string;
   phone: string | null;
+  weeklyHours: WeeklyHours | null;
   serviceIds: string[];
   services: ServiceOption[];
 };
@@ -25,6 +28,7 @@ const emptyForm = {
   color: "#c6a75e",
   serviceIds: [] as string[],
   active: true,
+  weeklyHours: null as WeeklyHours | null,
 };
 
 export function TeamClient({ services }: { services: ServiceOption[] }) {
@@ -41,6 +45,7 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
     password: "",
     active: true,
     serviceIds: [] as string[],
+    weeklyHours: null as WeeklyHours | null,
   });
 
   function load() {
@@ -80,6 +85,7 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
         color: form.color,
         serviceIds: form.serviceIds,
         active: form.active,
+        weeklyHours: form.weeklyHours,
       }),
     });
     const data = await res.json().catch(() => ({}));
@@ -101,6 +107,7 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
       password: "",
       active: m.active,
       serviceIds: [...m.serviceIds],
+      weeklyHours: m.weeklyHours ? structuredClone(m.weeklyHours) : null,
     });
     setStatus("");
     setError("");
@@ -118,6 +125,7 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
       color: edit.color,
       active: edit.active,
       serviceIds: edit.serviceIds,
+      weeklyHours: edit.weeklyHours,
     };
     if (edit.password) body.password = edit.password;
 
@@ -238,6 +246,10 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
               {!services.length ? <p className="text-sm text-white/40">No services available.</p> : null}
             </div>
           </fieldset>
+          <WeeklyHoursEditor
+            value={form.weeklyHours}
+            onChange={(weeklyHours) => setForm((f) => ({ ...f, weeklyHours }))}
+          />
           <button type="submit" className="admin-btn w-fit">
             Create member
           </button>
@@ -327,6 +339,10 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
                     })}
                   </div>
                 </fieldset>
+                <WeeklyHoursEditor
+                  value={edit.weeklyHours}
+                  onChange={(weeklyHours) => setEdit((f) => ({ ...f, weeklyHours }))}
+                />
                 <div className="flex flex-wrap gap-2 md:col-span-2">
                   <button type="submit" className="admin-btn w-fit">
                     Save
@@ -360,6 +376,9 @@ export function TeamClient({ services }: { services: ServiceOption[] }) {
                       {m.services.length
                         ? m.services.map((s) => s.title).join(" · ")
                         : "No services assigned"}
+                    </p>
+                    <p className="mt-1 text-[0.65rem] uppercase tracking-[0.12em] text-white/40">
+                      {m.weeklyHours ? "Custom weekly hours" : "Studio weekly hours"}
                     </p>
                   </div>
                 </div>

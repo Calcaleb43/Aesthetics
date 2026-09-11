@@ -1,4 +1,5 @@
 import { LoginForm } from "@/components/admin/LoginForm";
+import { SiteLogo } from "@/components/site/SiteLogo";
 import { getSession } from "@/lib/auth/session";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -11,10 +12,10 @@ export default async function AdminLoginPage() {
     <div className="min-h-screen">
       <header className="border-b border-white/10 bg-[#0f0f0f]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3.5 lg:px-8">
-          <div>
-            <p className="text-[0.62rem] uppercase tracking-[0.22em] text-[#c6a75e]">Aniekanvas</p>
-            <p className="text-sm font-semibold tracking-[0.08em] text-white">Content Management</p>
-          </div>
+          <Link href="/" className="inline-flex min-w-0 items-center gap-3" aria-label="Aniekanvas Aesthetics">
+            <SiteLogo className="h-9 w-auto max-w-[9.5rem]" />
+            <span className="text-sm font-semibold tracking-[0.08em] text-white">Content Management</span>
+          </Link>
           <Link
             href="/"
             className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/65 transition hover:border-white/30 hover:text-white"

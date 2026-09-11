@@ -21,6 +21,8 @@ export type SiteSettings = {
   whyBody: string;
   values: { title: string; body: string }[];
   meetAnie: string;
+  googleReviewsUrl: string;
+  googlePlaceId: string;
   timezone: string;
   weeklyHours: WeeklyHours;
   slotIntervalMinutes: number;
@@ -77,6 +79,17 @@ export type CareRecord = {
   coverImage: string | null;
 };
 
+export type TestimonialRecord = {
+  id: string;
+  quote: string;
+  authorName: string;
+  rating: number;
+  source: string;
+  sourceUrl: string | null;
+  sortOrder: number;
+  status: string;
+};
+
 export const seedData = seed;
 
 const DEFAULT_WEEKLY: WeeklyHours = {
@@ -108,6 +121,8 @@ export function getSeedSettings(): SiteSettings {
     whyBody: s.whyBody,
     values: s.values,
     meetAnie: s.meetAnie,
+    googleReviewsUrl: (s as { googleReviewsUrl?: string }).googleReviewsUrl || "",
+    googlePlaceId: (s as { googlePlaceId?: string }).googlePlaceId || "",
     timezone: (s as { timezone?: string }).timezone || "America/Toronto",
     weeklyHours: ((s as { weeklyHours?: WeeklyHours }).weeklyHours as WeeklyHours) || DEFAULT_WEEKLY,
     slotIntervalMinutes: (s as { slotIntervalMinutes?: number }).slotIntervalMinutes ?? 30,

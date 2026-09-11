@@ -19,10 +19,23 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BlockedTimesPanel, type BlockedTimeItem } from "@/components/admin/calendar/BlockedTimesPanel";
+import { dayKeyFromWeekday, type WeeklyHours } from "@/lib/booking/money";
+import {
+  closedRangesForDay,
+  effectiveWeeklyHours,
+  gridHourBounds,
+} from "@/lib/booking/weekly-hours";
 
 type ServiceOption = { id: string; title: string; slug: string };
 
-type StaffOption = { id: string; name: string; color: string; role?: string };
+type StaffOption = {
+  id: string;
+  name: string;
+  color: string;
+  role?: string;
+  serviceIds: string[];
+  weeklyHours: WeeklyHours | null;
+};
 
 type ClientOption = { id: string; name: string; email: string; phone: string | null };
 
@@ -51,11 +64,6 @@ type Appointment = {
 
 type ViewMode = "month" | "week" | "day" | "list";
 
-const HOUR_START = 8;
-const HOUR_END = 20;
-const HOURS = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
-const DAY_MINUTES = (HOUR_END - HOUR_START) * 60;
-
 const STATUS_OPTIONS = ["all", "confirmed", "pending_payment", "completed", "cancelled", "no_show"] as const;
 
 const STATUS_ACTIONS: { status: string; label: string }[] = [
@@ -65,19 +73,19 @@ const STATUS_ACTIONS: { status: string; label: string }[] = [
   { status: "confirmed", label: "Mark confirmed" },
 ];
 
-function minutesFromHourStart(date: Date) {
-  return date.getHours() * 60 + date.getMinutes() - HOUR_START * 60;
+function minutesFromHourStart(date: Date, hourStart: number) {
+  return date.getHours() * 60 + date.getMinutes() - hourStart * 60;
 }
 
-function eventStyle(startsAt: string, endsAt: string) {
+function eventStyle(startsAt: string, endsAt: string, hourStart: number, dayMinutes: number) {
   const start = new Date(startsAt);
   const end = new Date(endsAt);
-  const topMin = Math.max(0, minutesFromHourStart(start));
-  const endMin = Math.min(DAY_MINUTES, minutesFromHourStart(end));
+  const topMin = Math.max(0, minutesFromHourStart(start, hourStart));
+  const endMin = Math.min(dayMinutes, minutesFromHourStart(end, hourStart));
   const heightMin = Math.max(20, endMin - topMin);
   return {
-    top: `${(topMin / DAY_MINUTES) * 100}%`,
-    height: `${(heightMin / DAY_MINUTES) * 100}%`,
+    top: `${(topMin / dayMinutes) * 100}%`,
+    height: `${(heightMin / dayMinutes) * 100}%`,
   };
 }
 
@@ -118,6 +126,7 @@ export function AdminCalendar({
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [blocks, setBlocks] = useState<BlockedTimeItem[]>([]);
   const [staff, setStaff] = useState<StaffOption[]>([]);
+  const [studioWeeklyHours, setStudioWeeklyHours] = useState<WeeklyHours>({});
   const [canWrite, setCanWrite] = useState(false);
   const [canManageAll, setCanManageAll] = useState(false);
   const [staffFilter, setStaffFilter] = useState("");
@@ -196,7 +205,17 @@ export function AdminCalendar({
         return;
       }
       setAppointments(data.appointments || []);
-      setStaff(data.staff || []);
+      setStaff(
+        (data.staff || []).map((s: StaffOption) => ({
+          id: s.id,
+          name: s.name,
+          color: s.color,
+          role: s.role,
+          serviceIds: s.serviceIds || [],
+          weeklyHours: s.weeklyHours ?? null,
+        })),
+      );
+      if (data.studioWeeklyHours) setStudioWeeklyHours(data.studioWeeklyHours);
       setCanWrite(Boolean(data.canWrite));
       setCanManageAll(Boolean(data.canManageAll));
     });
@@ -237,10 +256,13 @@ export function AdminCalendar({
       if (cancelled || !res.ok || !data.client) return;
       const c = data.client;
       const starts = toLocalInputValue(new Date());
+      const defaultServiceId = initialServices[0]?.id || "";
+      const assigned = staff.filter((s) => s.serviceIds.includes(defaultServiceId));
+      const hasAssignees = assigned.length > 0;
       setCreateStartsAt(starts);
       setForm({
-        serviceId: initialServices[0]?.id || "",
-        staffId: "",
+        serviceId: defaultServiceId,
+        staffId: hasAssignees ? assigned[0]?.id || "" : "",
         clientId: c.id,
         clientName: c.name,
         clientEmail: c.email,
@@ -258,7 +280,7 @@ export function AdminCalendar({
     return () => {
       cancelled = true;
     };
-  }, [searchParams, canWrite, initialServices, router]);
+  }, [searchParams, canWrite, initialServices, router, staff]);
 
   function navigate(dir: -1 | 1) {
     if (view === "month") setCursor((d) => (dir === 1 ? addMonths(d, 1) : subMonths(d, 1)));
@@ -278,13 +300,71 @@ export function AdminCalendar({
     setClientSuggestions([]);
   }
 
+  function staffForService(serviceId: string, keepStaffId?: string | null) {
+    const assigned = staff.filter((s) => s.serviceIds.includes(serviceId));
+    if (!assigned.length) return staff;
+    if (keepStaffId && !assigned.some((s) => s.id === keepStaffId)) {
+      const keep = staff.find((s) => s.id === keepStaffId);
+      return keep ? [...assigned, keep] : assigned;
+    }
+    return assigned;
+  }
+
+  const serviceHasAssignees = useMemo(() => {
+    if (!form.serviceId) return false;
+    return staff.some((s) => s.serviceIds.includes(form.serviceId));
+  }, [staff, form.serviceId]);
+
+  const formStaffOptions = useMemo(
+    () => staffForService(form.serviceId, form.staffId || selected?.staffId),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [staff, form.serviceId, form.staffId, selected?.staffId],
+  );
+
+  const hoursForGrid = useMemo(() => {
+    if (staffFilter) {
+      const member = staff.find((s) => s.id === staffFilter);
+      return [effectiveWeeklyHours(member?.weeklyHours, studioWeeklyHours)];
+    }
+    if (staff.length) {
+      return staff.map((s) => effectiveWeeklyHours(s.weeklyHours, studioWeeklyHours));
+    }
+    return [studioWeeklyHours];
+  }, [staff, staffFilter, studioWeeklyHours]);
+
+  const { hourStart, hourEnd } = useMemo(() => gridHourBounds(hoursForGrid), [hoursForGrid]);
+  const hours = useMemo(
+    () => Array.from({ length: hourEnd - hourStart }, (_, i) => hourStart + i),
+    [hourStart, hourEnd],
+  );
+
+  function selectService(serviceId: string) {
+    setForm((f) => {
+      const allowed = staffForService(serviceId, f.staffId);
+      const staffStillOk = !f.staffId || allowed.some((s) => s.id === f.staffId);
+      const hasAssignees = staff.some((s) => s.serviceIds.includes(serviceId));
+      return {
+        ...f,
+        serviceId,
+        staffId: staffStillOk
+          ? f.staffId
+          : hasAssignees
+            ? allowed[0]?.id || ""
+            : "",
+      };
+    });
+  }
+
   function openCreate(at: Date) {
     if (!canWrite) return;
     const starts = toLocalInputValue(at);
+    const defaultServiceId = initialServices[0]?.id || "";
+    const assigned = staffForService(defaultServiceId);
+    const hasAssignees = staff.some((s) => s.serviceIds.includes(defaultServiceId));
     setCreateStartsAt(starts);
     setForm({
-      serviceId: initialServices[0]?.id || "",
-      staffId: "",
+      serviceId: defaultServiceId,
+      staffId: hasAssignees ? assigned[0]?.id || "" : "",
       clientId: "",
       clientName: "",
       clientEmail: "",
@@ -616,9 +696,21 @@ export function AdminCalendar({
       {view === "week" ? (
         <TimelineGrid
           days={weekDays}
-          hours={HOURS}
+          hours={hours}
+          hourStart={hourStart}
+          hourEnd={hourEnd}
           appointments={appointments}
           blocks={visibleBlocks}
+          closedHoursForDay={(day) => {
+            const key = dayKeyFromWeekday(day.getDay());
+            const weekly = staffFilter
+              ? effectiveWeeklyHours(
+                  staff.find((s) => s.id === staffFilter)?.weeklyHours,
+                  studioWeeklyHours,
+                )
+              : studioWeeklyHours;
+            return closedRangesForDay(weekly, key, hourStart * 60, hourEnd * 60);
+          }}
           timezone={timezone}
           canWrite={canWrite}
           onSlotClick={openCreate}
@@ -629,9 +721,21 @@ export function AdminCalendar({
       {view === "day" ? (
         <TimelineGrid
           days={[startOfDay(cursor)]}
-          hours={HOURS}
+          hours={hours}
+          hourStart={hourStart}
+          hourEnd={hourEnd}
           appointments={appointments}
           blocks={visibleBlocks}
+          closedHoursForDay={(day) => {
+            const key = dayKeyFromWeekday(day.getDay());
+            const weekly = staffFilter
+              ? effectiveWeeklyHours(
+                  staff.find((s) => s.id === staffFilter)?.weeklyHours,
+                  studioWeeklyHours,
+                )
+              : studioWeeklyHours;
+            return closedRangesForDay(weekly, key, hourStart * 60, hourEnd * 60);
+          }}
           timezone={timezone}
           canWrite={canWrite}
           onSlotClick={openCreate}
@@ -757,7 +861,7 @@ export function AdminCalendar({
                       <select
                         className="admin-input"
                         value={form.serviceId}
-                        onChange={(e) => setForm((f) => ({ ...f, serviceId: e.target.value }))}
+                        onChange={(e) => selectService(e.target.value)}
                         required
                       >
                         {initialServices.map((s) => (
@@ -787,14 +891,28 @@ export function AdminCalendar({
                         className="admin-input"
                         value={form.staffId}
                         onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))}
+                        required={drawer === "create" && serviceHasAssignees}
                       >
-                        <option value="">Unassigned</option>
-                        {staff.map((s) => (
+                        {!serviceHasAssignees ? (
+                          <option value="">Unassigned</option>
+                        ) : (
+                          <option value="" disabled>
+                            Select staff
+                          </option>
+                        )}
+                        {formStaffOptions.map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.name}
                           </option>
                         ))}
                       </select>
+                      {drawer === "create" ? (
+                        <span className="text-xs text-white/40">
+                          {serviceHasAssignees
+                            ? "Only team members assigned to this service"
+                            : "No assignees — studio-wide booking"}
+                        </span>
+                      ) : null}
                     </label>
                   ) : null}
 
@@ -1008,8 +1126,11 @@ function clipBlockToDay(startsAt: string, endsAt: string, day: Date) {
 function TimelineGrid({
   days,
   hours,
+  hourStart,
+  hourEnd,
   appointments,
   blocks,
+  closedHoursForDay,
   timezone,
   canWrite,
   onSlotClick,
@@ -1018,8 +1139,11 @@ function TimelineGrid({
 }: {
   days: Date[];
   hours: number[];
+  hourStart: number;
+  hourEnd: number;
   appointments: Appointment[];
   blocks: BlockedTimeItem[];
+  closedHoursForDay: (day: Date) => { startMin: number; endMin: number }[];
   timezone: string;
   canWrite: boolean;
   onSlotClick: (at: Date) => void;
@@ -1027,6 +1151,8 @@ function TimelineGrid({
   single?: boolean;
 }) {
   const colTemplate = single ? "4.5rem 1fr" : `4.5rem repeat(${days.length}, minmax(0, 1fr))`;
+  const dayMinutes = Math.max(60, (hourEnd - hourStart) * 60);
+  const span = Math.max(1, hourEnd - hourStart);
 
   return (
     <div className="admin-card overflow-x-auto">
@@ -1047,7 +1173,7 @@ function TimelineGrid({
             <div
               key={h}
               className="absolute right-2 text-[0.65rem] text-white/35"
-              style={{ top: `${((h - HOUR_START) / (HOUR_END - HOUR_START)) * 100}%` }}
+              style={{ top: `${((h - hourStart) / span) * 100}%` }}
             >
               {format(new Date(2000, 0, 1, h), "ha")}
             </div>
@@ -1063,21 +1189,33 @@ function TimelineGrid({
             const end = new Date(b.endsAt).getTime();
             return start < dayEnd && end > dayStart;
           });
+          const closed = closedHoursForDay(day);
           return (
             <div
               key={`col-${day.toISOString()}`}
               className="relative border-l border-white/10"
               style={{ height: `${hours.length * 3.25}rem` }}
             >
+              {closed.map((c, i) => (
+                <div
+                  key={`closed-${i}`}
+                  className="pointer-events-none absolute inset-x-0 z-[1] bg-black/35"
+                  style={{
+                    top: `${((c.startMin - hourStart * 60) / dayMinutes) * 100}%`,
+                    height: `${((c.endMin - c.startMin) / dayMinutes) * 100}%`,
+                  }}
+                  title="Outside open hours"
+                />
+              ))}
               {hours.map((h) => (
                 <button
                   key={h}
                   type="button"
                   disabled={!canWrite}
-                  className="absolute inset-x-0 border-t border-white/5 transition hover:bg-white/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
+                  className="absolute inset-x-0 z-[2] border-t border-white/5 transition hover:bg-white/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
                   style={{
-                    top: `${((h - HOUR_START) / (HOUR_END - HOUR_START)) * 100}%`,
-                    height: `${(1 / (HOUR_END - HOUR_START)) * 100}%`,
+                    top: `${((h - hourStart) / span) * 100}%`,
+                    height: `${(1 / span) * 100}%`,
                   }}
                   onClick={() => {
                     const at = new Date(day);
@@ -1089,7 +1227,7 @@ function TimelineGrid({
               ))}
               {dayBlocks.map((b) => {
                 const clipped = clipBlockToDay(b.startsAt, b.endsAt, day);
-                const style = eventStyle(clipped.startsAt, clipped.endsAt);
+                const style = eventStyle(clipped.startsAt, clipped.endsAt, hourStart, dayMinutes);
                 return (
                   <div
                     key={b.id}
@@ -1105,7 +1243,7 @@ function TimelineGrid({
                 );
               })}
               {dayAppts.map((a) => {
-                const style = eventStyle(a.startsAt, a.endsAt);
+                const style = eventStyle(a.startsAt, a.endsAt, hourStart, dayMinutes);
                 return (
                   <button
                     key={a.id}

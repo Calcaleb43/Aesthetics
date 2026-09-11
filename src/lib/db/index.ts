@@ -59,9 +59,12 @@ function clientLooksCurrent(client: PrismaClient) {
   const c = client as {
     notification?: { count?: unknown };
     client?: { count?: unknown };
+    testimonial?: { count?: unknown };
   };
   return (
-    typeof c.notification?.count === "function" && typeof c.client?.count === "function"
+    typeof c.notification?.count === "function" &&
+    typeof c.client?.count === "function" &&
+    typeof c.testimonial?.count === "function"
   );
 }
 
