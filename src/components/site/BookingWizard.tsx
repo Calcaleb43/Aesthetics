@@ -88,6 +88,7 @@ export function BookingWizard({
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [payInFull, setPayInFull] = useState(true);
   const [nameDirty, setNameDirty] = useState(false);
   const [phoneDirty, setPhoneDirty] = useState(false);
   const [error, setError] = useState("");
@@ -182,6 +183,24 @@ export function BookingWizard({
 
   const stepName = steps[step] || "Services";
 
+  const chargeOptions = useMemo(() => {
+    const lines = [...serviceLines, ...selectedAddons];
+    if (!lines.length) {
+      return {
+        deposit: null as ReturnType<typeof multiChargeBreakdown> | null,
+        full: null as ReturnType<typeof multiChargeBreakdown> | null,
+        canChooseFull: false,
+      };
+    }
+    const deposit = multiChargeBreakdown(lines, hstRateBps);
+    const full = multiChargeBreakdown(lines, hstRateBps, { preferFullPayment: true });
+    const canChooseFull =
+      deposit.paymentMode === "deposit" &&
+      full.totalCents > deposit.totalCents &&
+      full.paymentMode === "full";
+    return { deposit, full, canChooseFull };
+  }, [serviceLines, selectedAddons, hstRateBps]);
+
   const totals = useMemo(() => {
     const lines = [...serviceLines, ...selectedAddons];
     if (!lines.length) {
@@ -196,7 +215,8 @@ export function BookingWizard({
         titles: "",
       };
     }
-    const charge = multiChargeBreakdown(lines, hstRateBps);
+    const preferFull = chargeOptions.canChooseFull && payInFull;
+    const charge = multiChargeBreakdown(lines, hstRateBps, { preferFullPayment: preferFull });
     return {
       durationMinutes: lines.reduce((sum, s) => sum + s.durationMinutes, 0),
       priceCents: charge.priceCents,
@@ -207,7 +227,11 @@ export function BookingWizard({
       totalCents: charge.totalCents,
       titles: lines.map((s) => s.title).join(", "),
     };
-  }, [serviceLines, selectedAddons, hstRateBps]);
+  }, [serviceLines, selectedAddons, hstRateBps, chargeOptions.canChooseFull, payInFull]);
+
+  useEffect(() => {
+    if (!chargeOptions.canChooseFull) setPayInFull(false);
+  }, [chargeOptions.canChooseFull]);
 
   const appointmentLabel = useMemo(() => {
     if (!slotStart) return "";
@@ -496,6 +520,7 @@ export function BookingWizard({
             clientPhone: phone.trim(),
             notes: notes || null,
             policyAccepted: true,
+            payInFull: chargeOptions.canChooseFull && payInFull,
           }),
         });
         const data = await res.json();
@@ -1058,7 +1083,39 @@ export function BookingWizard({
                 <p>
                   Services &amp; add-ons total: <strong>{formatCad(totals.priceCents)}</strong>
                 </p>
-                {totals.paymentMode === "deposit" ? (
+                {chargeOptions.canChooseFull && chargeOptions.deposit && chargeOptions.full ? (
+                  <div className="mt-4 grid gap-2">
+                    <p className="text-xs uppercase tracking-[0.12em] text-[var(--ink-soft)]">
+                      Choose how much to pay now
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setPayInFull(false)}
+                      className={`rounded-xl border px-4 py-3 text-left transition ${
+                        !payInFull ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                      }`}
+                    >
+                      <span className="block font-medium">Deposit only</span>
+                      <span className={`mt-0.5 block text-xs ${!payInFull ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                        Pay {formatCad(chargeOptions.deposit.totalCents)} now (deposit + HST). Remaining{" "}
+                        {formatCad(Math.max(0, totals.priceCents - (chargeOptions.deposit.depositCents || 0)))} + tax
+                        due at appointment.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayInFull(true)}
+                      className={`rounded-xl border px-4 py-3 text-left transition ${
+                        payInFull ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                      }`}
+                    >
+                      <span className="block font-medium">Pay in full</span>
+                      <span className={`mt-0.5 block text-xs ${payInFull ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                        Pay {formatCad(chargeOptions.full.totalCents)} now (full amount + HST).
+                      </span>
+                    </button>
+                  </div>
+                ) : totals.paymentMode === "deposit" ? (
                   <>
                     <p>
                       Due now (deposit + HST): <strong>{formatCad(totals.totalCents)}</strong>
@@ -1102,6 +1159,7 @@ export function BookingWizard({
             ) : totals.paymentMode === "full" ? (
               <p>
                 Charging now: <strong>{formatCad(totals.totalCents)}</strong> (full + HST)
+                {chargeOptions.canChooseFull && payInFull ? " — you chose to pay in full" : ""}
               </p>
             ) : (
               <p>No charge today — your booking will be confirmed immediately.</p>
@@ -1116,7 +1174,9 @@ export function BookingWizard({
                 ? "Redirecting…"
                 : totals.paymentMode === "none" || totals.totalCents <= 0
                   ? "Confirm booking"
-                  : "Pay & book"}
+                  : totals.paymentMode === "full"
+                    ? "Pay full & book"
+                    : "Pay deposit & book"}
             </button>
           </div>
         </div>

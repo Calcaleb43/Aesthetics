@@ -136,19 +136,24 @@ export function bookingHref(bookingEnabled: boolean, bookingUrl: string, categor
 export function multiChargeBreakdown(
   lines: { priceCents: number; depositCents: number | null; paymentMode: string }[],
   hstRateBps: number,
+  opts?: { preferFullPayment?: boolean },
 ) {
   let baseCents = 0;
   let taxCents = 0;
   let priceCents = 0;
   let depositCents = 0;
-  const modes = new Set(lines.map((l) => l.paymentMode));
+  const preferFull = Boolean(opts?.preferFullPayment);
+  const modes = new Set<string>();
   for (const line of lines) {
+    // Clients may upgrade deposit-required lines to pay in full online.
+    const paymentMode = preferFull && line.paymentMode === "deposit" ? "full" : line.paymentMode;
+    modes.add(paymentMode);
     priceCents += line.priceCents;
     depositCents += Math.max(0, line.depositCents ?? 0);
     const part = chargeBreakdown({
       priceCents: line.priceCents,
       depositCents: line.depositCents,
-      paymentMode: line.paymentMode,
+      paymentMode,
       hstRateBps,
     });
     baseCents += part.baseCents;

@@ -40,6 +40,7 @@ const schema = z
   clientPhone: z.string().min(1).max(64),
     notes: z.string().max(2000).optional().nullable(),
     policyAccepted: z.literal(true),
+    payInFull: z.boolean().optional(),
   })
   .refine((v) => (v.items?.length || 0) > 0 || (v.serviceIds?.length || 0) > 0, {
     message: "items or serviceIds required",
@@ -229,7 +230,9 @@ export async function POST(req: Request) {
     staffId = null;
   }
 
-  const charge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps);
+  const charge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps, {
+    preferFullPayment: Boolean(parsed.data.payInFull),
+  });
   const paymentProvider = normalizePaymentProvider(settings.paymentProvider);
   const instantlyConfirmed =
     paymentProvider === "none" || charge.paymentMode === "none" || charge.totalCents <= 0;
