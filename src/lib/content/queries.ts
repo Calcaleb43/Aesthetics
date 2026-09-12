@@ -257,6 +257,7 @@ export async function getSettings(): Promise<SiteSettings> {
       maxAdvanceDays: row.maxAdvanceDays ?? 60,
       hstRateBps: row.hstRateBps ?? 1300,
       bookingEnabled: row.bookingEnabled ?? true,
+      paymentProvider: row.paymentProvider === "none" ? "none" : "stripe",
     };
   } catch {
     return getSeedSettings();

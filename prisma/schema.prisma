@@ -67,6 +67,8 @@ model SiteSettings {
   maxAdvanceDays       Int      @default(60) @map("max_advance_days")
   hstRateBps           Int      @default(1300) @map("hst_rate_bps")
   bookingEnabled       Boolean  @default(true) @map("booking_enabled")
+  /// Active online payment platform for booking checkout. Secrets stay in env.
+  paymentProvider      String   @default("stripe") @map("payment_provider") @db.VarChar(32)
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("site_settings")

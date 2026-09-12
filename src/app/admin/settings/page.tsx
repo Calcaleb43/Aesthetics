@@ -1,15 +1,40 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import { AdminEditor } from "@/components/admin/AdminEditor";
+import { paymentEnvStatus, paymentProviderConfigured, paymentProviderLabel } from "@/lib/booking/payments";
 import { getSettings } from "@/lib/content/queries";
+import type { PaymentProvider } from "@/lib/content/seed";
 
 export default async function AdminSettingsPage() {
   const settings = await getSettings();
+  const envStatus = paymentEnvStatus();
+  const provider = settings.paymentProvider as PaymentProvider;
+  const ready = paymentProviderConfigured(provider);
 
   return (
     <AdminShell
       title="Site Settings"
       description="Global branding, contact details, booking link, and homepage copy."
     >
+      <div className="admin-card mb-6 p-5">
+        <p className="text-[0.65rem] uppercase tracking-[0.14em] text-white/40">Payments</p>
+        <p className="mt-2 text-sm text-white/80">
+          Active platform: <strong className="text-white">{paymentProviderLabel(provider)}</strong>
+          {" · "}
+          <span className={ready ? "text-emerald-300" : "text-amber-200"}>
+            {ready ? "Env credentials ready" : "Env credentials missing"}
+          </span>
+        </p>
+        <p className="mt-2 text-xs text-white/45">
+          Choose the platform below. API keys stay in server env — never stored in the CMS.
+          Stripe needs <code className="text-white/70">STRIPE_SECRET_KEY</code>
+          {envStatus.stripe.secretKey ? " ✓" : " ✗"},{" "}
+          <code className="text-white/70">STRIPE_WEBHOOK_SECRET</code>
+          {envStatus.stripe.webhookSecret ? " ✓" : " ✗"},{" "}
+          <code className="text-white/70">NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code>
+          {envStatus.stripe.publishableKey ? " ✓" : " ✗"}.
+        </p>
+      </div>
+
       <div className="admin-card p-6 md:p-8">
         <AdminEditor
           identityKey="settings"
@@ -35,6 +60,13 @@ export default async function AdminSettingsPage() {
               hint: "From Google Maps / Place ID finder. Requires GOOGLE_PLACES_API_KEY in env.",
             },
             { name: "bookingEnabled", label: "Native online booking enabled", type: "boolean" },
+            {
+              name: "paymentProvider",
+              label: "Booking payment platform",
+              type: "select",
+              options: ["stripe", "none"],
+              hint: "Secrets stay in env. stripe = Stripe Checkout; none = confirm bookings with no online charge.",
+            },
             { name: "timezone", label: "Timezone", hint: "e.g. America/Toronto" },
             {
               name: "weeklyHours",

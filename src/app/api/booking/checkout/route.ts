@@ -9,14 +9,15 @@ import {
 } from "@/lib/booking/availability";
 import { announceAppointmentBooked } from "@/lib/booking/announce";
 import { upsertClient } from "@/lib/booking/clients";
-import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
+import { multiChargeBreakdown } from "@/lib/booking/money";
 import {
   findBookableAddons,
   normalizeBookingItems,
   resolveBookingItems,
   staffForAllServices,
 } from "@/lib/booking/service";
-import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
+import { createBookingCheckoutSession, normalizePaymentProvider, paymentProviderConfigured } from "@/lib/booking/payments";
+import { siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -229,7 +230,9 @@ export async function POST(req: Request) {
   }
 
   const charge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps);
-  const instantlyConfirmed = charge.paymentMode === "none" || charge.totalCents <= 0;
+  const paymentProvider = normalizePaymentProvider(settings.paymentProvider);
+  const instantlyConfirmed =
+    paymentProvider === "none" || charge.paymentMode === "none" || charge.totalCents <= 0;
 
   const clientName = parsed.data.clientName.trim();
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
@@ -296,56 +299,41 @@ export async function POST(req: Request) {
     });
   }
 
-  if (!hasStripe()) {
+  if (!paymentProviderConfigured(paymentProvider)) {
     await db.appointment.update({
       where: { id: appointment.id },
       data: { status: "cancelled" },
     });
-    return NextResponse.json({ error: "Payments are not configured yet" }, { status: 503 });
+    return NextResponse.json(
+      { error: "Payments are not configured yet (set provider env keys or choose None in Settings)" },
+      { status: 503 },
+    );
   }
 
-  const label =
-    charge.paymentMode === "deposit"
-      ? `Booking deposit — ${serviceLabel}`
-      : `Booking payment — ${serviceLabel}`;
-
   try {
-    const session = await getStripe().checkout.sessions.create({
-      mode: "payment",
-      customer_email: appointment.clientEmail,
-      line_items: [
-        {
-          quantity: 1,
-          price_data: {
-            currency: "cad",
-            unit_amount: charge.totalCents,
-            product_data: {
-              name: label.slice(0, 120),
-              description: `${formatCad(charge.baseCents)} + HST ${formatCad(charge.taxCents)}`,
-            },
-          },
-        },
-      ],
-      metadata: {
-        appointmentId: appointment.id,
-        categoryId,
-        serviceIds: serviceIds.join(","),
-        addonIds: addons.map((a) => a.id).join(","),
-        paymentMode: charge.paymentMode,
-      },
-      success_url: `${siteUrl()}/book-now/success?appointment=${appointment.id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${siteUrl()}/book-now/cancelled?appointment=${appointment.id}`,
+    const session = await createBookingCheckoutSession({
+      provider: paymentProvider,
+      appointmentId: appointment.id,
+      clientEmail: appointment.clientEmail,
+      serviceLabel,
+      categoryId,
+      serviceIds,
+      addonIds: addons.map((a) => a.id),
+      paymentMode: charge.paymentMode,
+      baseCents: charge.baseCents,
+      taxCents: charge.taxCents,
+      totalCents: charge.totalCents,
     });
 
     await db.appointment.update({
       where: { id: appointment.id },
-      data: { stripeSessionId: session.id },
+      data: { stripeSessionId: session.externalId || null },
     });
 
     return NextResponse.json({
       ok: true,
       appointmentId: appointment.id,
-      checkoutUrl: session.url,
+      checkoutUrl: session.checkoutUrl,
     });
   } catch (err) {
     await db.appointment.update({

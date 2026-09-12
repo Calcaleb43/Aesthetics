@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminApi } from "@/lib/auth/admin-api";
+import { isUuid } from "@/lib/booking/service";
 
 export async function GET() {
   const gate = await requireAdminApi();
   if ("error" in gate) return gate.error;
+
+  // Env-bootstrap sessions may use a non-UUID sub until re-login binds a real Admin row.
+  if (!isUuid(gate.session.sub)) {
+    return NextResponse.json({ unread: 0, notifications: [] });
+  }
 
   const [unread, rows] = await Promise.all([
     gate.db.notification.count({
@@ -41,6 +47,10 @@ export async function PATCH(req: Request) {
   if ("error" in gate) return gate.error;
   const parsed = patchSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
+
+  if (!isUuid(gate.session.sub)) {
+    return NextResponse.json({ ok: true });
+  }
 
   if (parsed.data.markAll) {
     await gate.db.notification.updateMany({

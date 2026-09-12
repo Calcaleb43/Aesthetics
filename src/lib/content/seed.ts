@@ -3,6 +3,7 @@ import seed from "./seed-data.json";
 export type WeeklyWindow = { start: string; end: string };
 export type WeeklyHours = Record<string, WeeklyWindow[]>;
 export type PaymentMode = "deposit" | "full" | "none";
+export type PaymentProvider = "stripe" | "none";
 
 export type SiteSettings = {
   siteName: string;
@@ -31,6 +32,7 @@ export type SiteSettings = {
   maxAdvanceDays: number;
   hstRateBps: number;
   bookingEnabled: boolean;
+  paymentProvider: PaymentProvider;
 };
 
 export type PageRecord = {
@@ -175,6 +177,8 @@ export function getSeedSettings(): SiteSettings {
     maxAdvanceDays: (s as { maxAdvanceDays?: number }).maxAdvanceDays ?? 60,
     hstRateBps: (s as { hstRateBps?: number }).hstRateBps ?? 1300,
     bookingEnabled: (s as { bookingEnabled?: boolean }).bookingEnabled ?? true,
+    paymentProvider:
+      (s as { paymentProvider?: PaymentProvider }).paymentProvider === "none" ? "none" : "stripe",
   };
 }
 

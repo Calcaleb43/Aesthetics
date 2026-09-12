@@ -18,12 +18,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Content is served from the scraped seed until Neon is connected.
 
-CMS login (env bootstrap):
-
-- Email: `admin@aniekanvas.com`
-- Password: `aniekanvas-admin`
-
-Override with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+After seeding the database, sign in at `/admin` with the seeded Admin user (`ADMIN_EMAIL` / `ADMIN_PASSWORD` used by `npm run db:seed`).
 
 ## Connect Neon + enable live CMS writes
 

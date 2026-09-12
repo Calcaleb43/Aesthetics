@@ -32,6 +32,7 @@ const schema = z.object({
   maxAdvanceDays: z.number().int().positive().optional(),
   hstRateBps: z.number().int().min(0).optional(),
   bookingEnabled: z.boolean().optional(),
+  paymentProvider: z.enum(["stripe", "none"]).optional(),
 });
 
 export async function PUT(req: Request) {
@@ -52,6 +53,7 @@ export async function PUT(req: Request) {
     maxAdvanceDays: parsed.data.maxAdvanceDays ?? 60,
     hstRateBps: parsed.data.hstRateBps ?? 1300,
     bookingEnabled: parsed.data.bookingEnabled ?? true,
+    paymentProvider: parsed.data.paymentProvider ?? "stripe",
   };
 
   await gate.db.siteSettings.upsert({
