@@ -1,19 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getAllCare, getCare, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateStaticParams() {
   const guides = await getAllCare();
   return guides.map((g) => ({ slug: g.categorySlug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const guide = await getCare(slug);
-  return { title: guide?.title || "Care guide" };
+  const [guide, settings] = await Promise.all([getCare(slug), getSettings()]);
+  return buildPageMetadata({
+    title: guide?.title || "Care guide",
+    description:
+      guide?.title
+        ? `${guide.title} — pre-care and aftercare for the best healing results at ${settings.siteName}.`
+        : `Pre-care and aftercare guides at ${settings.siteName}.`,
+    path: `/care/${slug}`,
+    image: guide?.coverImage || settings.galleryImages[0] || settings.heroImage,
+  });
 }
 
 export default async function CareDetailPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -45,14 +55,6 @@ export default async function CareDetailPage({ params }: { params: Promise<{ slu
           </Link>
           <div className="mt-8">
             <ContentBlocks content={guide.content} />
-          </div>
-          <div className="mt-10 flex flex-wrap gap-3">
-            <Link href={`/services/${guide.categorySlug}`} className="btn">
-              View service
-            </Link>
-            <Link href={`/faqs/${guide.categorySlug}`} className="btn">
-              FAQs
-            </Link>
           </div>
         </ScrollReveal>
       </section>

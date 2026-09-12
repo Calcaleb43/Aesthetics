@@ -3,10 +3,16 @@ import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { getPage, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const page = await getPage("policies");
-  return { title: page?.seoTitle || page?.title || "Policies" };
+  const [page, settings] = await Promise.all([getPage("policies"), getSettings()]);
+  return buildPageMetadata({
+    title: page?.seoTitle || page?.title || "Policies",
+    description: page?.excerpt || "Studio policies and client agreement for Aniekanvas Aesthetics.",
+    path: "/policies",
+    image: settings.galleryImages[5] || settings.heroImage,
+  });
 }
 
 export default async function PoliciesPage() {

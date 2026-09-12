@@ -4,8 +4,17 @@ import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getPublishedServices, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Services" };
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  return buildPageMetadata({
+    title: "Services",
+    description: `Explore treatments at ${settings.siteName}: brows, PMU, laser, scar revision, and more in Toronto.`,
+    path: "/services",
+    image: settings.galleryImages[1] || settings.heroImage,
+  });
+}
 
 export default async function ServicesIndexPage() {
   const [services, settings] = await Promise.all([getPublishedServices(), getSettings()]);

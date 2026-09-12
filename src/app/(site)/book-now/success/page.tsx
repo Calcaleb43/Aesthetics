@@ -1,7 +1,16 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "Booking confirmed",
+  description: "Your appointment booking confirmation.",
+  path: "/book-now/success",
+  noIndex: true,
+});
 
 export default async function BookSuccessPage({
   searchParams,

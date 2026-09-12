@@ -4,8 +4,17 @@ import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getAllCare, getPublishedServices, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Pre-Care & Aftercare" };
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  return buildPageMetadata({
+    title: "Pre-Care & Aftercare",
+    description: `Pre-care and aftercare guides for treatments at ${settings.siteName}.`,
+    path: "/care",
+    image: settings.galleryImages[0] || settings.heroImage,
+  });
+}
 
 export default async function CareIndexPage() {
   const [guides, services, settings] = await Promise.all([

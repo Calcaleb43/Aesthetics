@@ -2,13 +2,16 @@ import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { BookingWizard } from "@/components/site/BookingWizard";
 import { getPage, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const page = await getPage("book-now");
-  return {
+  const [page, settings] = await Promise.all([getPage("book-now"), getSettings()]);
+  return buildPageMetadata({
     title: page?.seoTitle || "Book Now",
     description: page?.excerpt || "Book an appointment at Aniekanvas Aesthetics.",
-  };
+    path: "/book-now",
+    image: settings.heroImage,
+  });
 }
 
 export default async function BookNowPage({

@@ -1,11 +1,24 @@
 import Image from "next/image";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { HeroCarousel, type HeroSlide } from "@/components/site/HeroCarousel";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { TestimonialsSection } from "@/components/site/TestimonialsSection";
 import { bookingHref } from "@/lib/booking/money";
 import { getFeaturedServices, getPublishedTestimonials, getSettings } from "@/lib/content/queries";
 import { getGooglePlaceReviews, hasGooglePlacesConfig } from "@/lib/google/places-reviews";
+import { buildPageMetadata } from "@/lib/seo";
+
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  return buildPageMetadata({
+    title: settings.siteName || "ANIEKANVAS AESTHETICS",
+    description: settings.subtitle || settings.tagline,
+    path: "/",
+    image: settings.heroImage,
+    absoluteTitle: true,
+  });
+}
 
 export default async function HomePage() {
   const [settings, services, curated] = await Promise.all([

@@ -1,7 +1,9 @@
 import { MotionProvider } from "@/components/site/MotionProvider";
+import { JsonLd } from "@/components/site/JsonLd";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { getPublishedServices, getSettings } from "@/lib/content/queries";
+import { localBusinessJsonLd } from "@/lib/seo";
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const [settings, services] = await Promise.all([getSettings(), getPublishedServices()]);
@@ -9,6 +11,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
 
   return (
     <div className="site-shell" style={{ fontFamily: "var(--font-figtree), var(--font-body)" }}>
+      <JsonLd data={localBusinessJsonLd(settings)} />
       <MotionProvider>
         <SiteHeader
           siteName={settings.siteName}

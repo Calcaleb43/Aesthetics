@@ -5,8 +5,17 @@ import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { StudioMap } from "@/components/site/StudioMap";
 import { getPublishedServices, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "Contact" };
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  return buildPageMetadata({
+    title: "Contact",
+    description: `Request a consultation with ${settings.siteName}. Email ${settings.email} or call ${settings.phone}.`,
+    path: "/contact",
+    image: settings.galleryImages[1] || settings.aboutImage || settings.heroImage,
+  });
+}
 
 export default async function ContactPage() {
   const [settings, services] = await Promise.all([getSettings(), getPublishedServices()]);

@@ -1,19 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { FaqAccordion } from "@/components/site/FaqAccordion";
+import { JsonLd } from "@/components/site/JsonLd";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getAllFaqs, getFaq, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata, faqPageJsonLd } from "@/lib/seo";
 
 export async function generateStaticParams() {
   const faqs = await getAllFaqs();
   return faqs.map((f) => ({ slug: f.categorySlug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const faq = await getFaq(slug);
-  return { title: faq?.title || "FAQ" };
+  const [faq, settings] = await Promise.all([getFaq(slug), getSettings()]);
+  return buildPageMetadata({
+    title: faq?.title || "FAQ",
+    description: faq?.intro || `Frequently asked questions about this treatment at ${settings.siteName}.`,
+    path: `/faqs/${slug}`,
+    image: settings.galleryImages[3] || settings.heroImage,
+  });
 }
 
 export default async function FaqDetailPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -25,6 +33,7 @@ export default async function FaqDetailPage({ params }: { params: Promise<{ slug
 
   return (
     <div>
+      <JsonLd data={faqPageJsonLd(faq.items)} />
       <PageHero
         eyebrow="FAQ"
         title={faq.title}
@@ -45,14 +54,6 @@ export default async function FaqDetailPage({ params }: { params: Promise<{ slug
           </Link>
           <div className="mt-8">
             <FaqAccordion items={faq.items} />
-          </div>
-          <div className="mt-10 flex flex-wrap gap-3">
-            <Link href={`/services/${faq.categorySlug}`} className="btn">
-              View service
-            </Link>
-            <Link href={`/care/${faq.categorySlug}`} className="btn">
-              Pre & Aftercare
-            </Link>
           </div>
         </ScrollReveal>
       </section>

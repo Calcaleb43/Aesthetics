@@ -4,8 +4,17 @@ import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getAllFaqs, getPublishedServices, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = { title: "FAQs" };
+export async function generateMetadata(): Promise<Metadata> {
+  const settings = await getSettings();
+  return buildPageMetadata({
+    title: "FAQs",
+    description: `Frequently asked questions about treatments at ${settings.siteName}.`,
+    path: "/faqs",
+    image: settings.heroImage,
+  });
+}
 
 export default async function FaqsIndexPage() {
   const [faqs, services, settings] = await Promise.all([

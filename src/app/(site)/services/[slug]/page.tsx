@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
@@ -10,16 +11,22 @@ import {
   getService,
   getSettings,
 } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateStaticParams() {
   const services = await getPublishedServices();
   return services.map((s) => ({ slug: s.slug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
-  const service = await getService(slug);
-  return { title: service?.title || "Service" };
+  const [service, settings] = await Promise.all([getService(slug), getSettings()]);
+  return buildPageMetadata({
+    title: service?.title || "Service",
+    description: service?.summary || service?.tagline || settings.tagline,
+    path: `/services/${slug}`,
+    image: service?.coverImage || settings.heroImage,
+  });
 }
 
 export default async function ServiceDetailPage({

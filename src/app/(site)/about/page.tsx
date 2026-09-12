@@ -6,10 +6,16 @@ import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getPage, getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const page = await getPage("about");
-  return { title: page?.seoTitle || page?.title || "About" };
+  const [page, settings] = await Promise.all([getPage("about"), getSettings()]);
+  return buildPageMetadata({
+    title: page?.seoTitle || page?.title || "About",
+    description: page?.excerpt || settings.meetAnie || settings.tagline,
+    path: "/about",
+    image: settings.aboutImage || settings.heroImage,
+  });
 }
 
 export default async function AboutPage() {

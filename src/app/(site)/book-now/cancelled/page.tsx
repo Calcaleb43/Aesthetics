@@ -1,7 +1,16 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
+import { buildPageMetadata } from "@/lib/seo";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: "Booking cancelled",
+  description: "Your booking checkout was cancelled.",
+  path: "/book-now/cancelled",
+  noIndex: true,
+});
 
 export default async function BookCancelledPage({
   searchParams,
