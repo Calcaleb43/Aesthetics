@@ -6,7 +6,13 @@ import {
   PENDING_HOLD_MINUTES,
   type BusyRange,
 } from "@/lib/booking/availability";
-import { findBookableAddons, findBookableServices, staffForAllServices } from "@/lib/booking/service";
+import {
+  findBookableAddons,
+  normalizeBookingItems,
+  resolveBookingItems,
+  staffForAllServices,
+  type BookingItemInput,
+} from "@/lib/booking/service";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -29,6 +35,19 @@ function parseAddonIds(url: URL) {
   return [...new Set(fromMulti.filter((v): v is string => !!v && v.trim().length > 0).map((v) => v.trim()))];
 }
 
+function parseItems(url: URL): BookingItemInput[] | null {
+  const raw = url.searchParams.get("items");
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw) as BookingItemInput[];
+      return normalizeBookingItems({ items: parsed });
+    } catch {
+      return null;
+    }
+  }
+  return normalizeBookingItems({ serviceIds: parseServiceIds(url) });
+}
+
 export async function GET(req: Request) {
   if (!hasDatabase()) {
     return NextResponse.json(
@@ -38,13 +57,13 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const serviceIds = parseServiceIds(url);
+  const items = parseItems(url);
   const addonIds = parseAddonIds(url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
 
-  if (!serviceIds.length) {
-    return NextResponse.json({ error: "serviceIds required" }, { status: 400 });
+  if (!items?.length) {
+    return NextResponse.json({ error: "serviceIds or items required" }, { status: 400 });
   }
 
   try {
@@ -62,19 +81,20 @@ export async function GET(req: Request) {
       data: { status: "expired" },
     });
 
-    const services = await findBookableServices(db, serviceIds);
-    if (!services) {
-      return NextResponse.json({ error: "Services not found" }, { status: 404 });
+    const lines = await resolveBookingItems(db, items);
+    if (!lines) {
+      return NextResponse.json({ error: "Services or variants not available" }, { status: 404 });
     }
 
-    const categoryIds = [...new Set(services.map((s) => s.categoryId))];
+    const serviceIds = [...new Set(lines.map((l) => l.serviceId))];
+    const categoryIds = [...new Set(lines.map((l) => l.categoryId))];
     const addons = addonIds.length ? await findBookableAddons(db, addonIds, categoryIds) : [];
     if (addons === null) {
       return NextResponse.json({ error: "Add-ons not available for the selected services" }, { status: 404 });
     }
 
     const durationMinutes =
-      services.reduce((sum, s) => sum + s.durationMinutes, 0) +
+      lines.reduce((sum, l) => sum + l.durationMinutes, 0) +
       addons.reduce((sum, a) => sum + a.durationMinutes, 0);
     const from = fromParam ? new Date(fromParam) : new Date();
     const to = toParam ? new Date(toParam) : addDays(from, 14);
@@ -82,10 +102,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
     }
 
-    const assigned = await staffForAllServices(
-      db,
-      services.map((s) => s.id),
-    );
+    const assigned = await staffForAllServices(db, serviceIds);
 
     const holds = activeHoldStatuses();
     const studioBlocks = await db.blockedTime.findMany({
@@ -174,7 +191,8 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      serviceIds: services.map((s) => s.id),
+      serviceIds,
+      items,
       addonIds: addons.map((a) => a.id),
       categoryIds,
       timezone: settings.timezone,

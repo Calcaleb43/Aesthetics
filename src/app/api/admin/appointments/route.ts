@@ -9,7 +9,7 @@ import { activeHoldStatuses } from "@/lib/booking/availability";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
 import { asWeeklyHours, formatCad } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
-import { staffForAllServices } from "@/lib/booking/service";
+import { staffForAllServices, normalizeBookingItems, resolveBookingItems } from "@/lib/booking/service";
 import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
 import type { Database } from "@/lib/db";
 import { emailAppointmentCancelled } from "@/lib/email/resend";
@@ -224,30 +224,35 @@ export async function PATCH(req: Request) {
         : []);
 
   if (parsed.data.serviceIds || parsed.data.serviceId) {
-    const services = await gate.db.service.findMany({
-      where: { id: { in: nextServiceIds } },
-      orderBy: { sortOrder: "asc" },
-    });
-    if (services.length !== nextServiceIds.length) {
+    const bookingItems = normalizeBookingItems({ serviceIds: nextServiceIds });
+    if (!bookingItems) {
       return NextResponse.json({ error: "Service not found" }, { status: 404 });
     }
-    const categoryId = services[0].categoryId;
-    nextServiceIds = services.map((s) => s.id);
+    const lines = await resolveBookingItems(gate.db, bookingItems, {
+      requireVariants: false,
+      publishedOnly: false,
+    });
+    if (!lines) {
+      return NextResponse.json({ error: "Service not found" }, { status: 404 });
+    }
+    const categoryId = lines[0].categoryId;
+    nextServiceIds = [...new Set(lines.map((l) => l.serviceId))];
     data.categoryId = categoryId;
-    data.serviceId = services[0].id;
-    data.serviceLabel = services.map((s) => s.title).join(", ").slice(0, 255);
-    data.priceCents = services.reduce((sum, s) => sum + s.priceCents, 0);
-    data.depositCents = services.reduce((sum, s) => sum + (s.depositCents || 0), 0) || null;
+    data.serviceId = nextServiceIds[0];
+    data.serviceLabel = lines.map((l) => l.title).join(", ").slice(0, 255);
+    data.priceCents = lines.reduce((sum, l) => sum + l.priceCents, 0);
+    data.depositCents = lines.reduce((sum, l) => sum + (l.depositCents || 0), 0) || null;
     await gate.db.appointmentService.deleteMany({ where: { appointmentId: existing.id } });
     await gate.db.appointmentService.createMany({
-      data: services.map((s, index) => ({
+      data: lines.map((l, index) => ({
         appointmentId: existing.id,
-        serviceId: s.id,
-        title: s.title,
-        durationMinutes: s.durationMinutes,
-        priceCents: s.priceCents,
-        depositCents: s.depositCents,
-        paymentMode: s.paymentMode,
+        serviceId: l.serviceId,
+        variantId: l.variantId,
+        title: l.title,
+        durationMinutes: l.durationMinutes,
+        priceCents: l.priceCents,
+        depositCents: l.depositCents,
+        paymentMode: l.paymentMode,
         sortOrder: index,
       })),
     });
@@ -267,11 +272,18 @@ export async function PATCH(req: Request) {
     data.startsAt = new Date(parsed.data.startsAt);
     if (parsed.data.endsAt) data.endsAt = new Date(parsed.data.endsAt);
     else {
-      const services = await gate.db.service.findMany({ where: { id: { in: nextServiceIds } } });
-      const duration = services.reduce((sum, s) => sum + s.durationMinutes, 0)
-        || existing.lines.reduce((sum, l) => sum + l.durationMinutes, 0)
-        || existing.service?.durationMinutes
-        || 60;
+      const bookingItems = normalizeBookingItems({ serviceIds: nextServiceIds });
+      const lines = bookingItems
+        ? await resolveBookingItems(gate.db, bookingItems, {
+            requireVariants: false,
+            publishedOnly: false,
+          })
+        : null;
+      const duration =
+        (lines?.reduce((sum, l) => sum + l.durationMinutes, 0) || 0) ||
+        existing.lines.reduce((sum, l) => sum + l.durationMinutes, 0) ||
+        existing.service?.durationMinutes ||
+        60;
       data.endsAt = addMinutes(new Date(parsed.data.startsAt), duration);
     }
   } else if (parsed.data.endsAt) {
@@ -361,27 +373,28 @@ export async function POST(req: Request) {
       ? [parsed.data.serviceId]
       : [];
 
-  const services = await gate.db.service.findMany({
-    where: { id: { in: serviceIds } },
-    orderBy: { sortOrder: "asc" },
-  });
-  if (services.length !== serviceIds.length) {
+  const bookingItems = normalizeBookingItems({ serviceIds });
+  if (!bookingItems) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }
-  const categoryId = services[0].categoryId;
-  const durationMinutes = services.reduce((sum, s) => sum + s.durationMinutes, 0);
-  const priceCents = services.reduce((sum, s) => sum + s.priceCents, 0);
-  const depositCents = services.reduce((sum, s) => sum + (s.depositCents || 0), 0) || null;
-  const serviceLabel = services.map((s) => s.title).join(", ").slice(0, 255);
+  const lines = await resolveBookingItems(gate.db, bookingItems, {
+    requireVariants: false,
+    publishedOnly: false,
+  });
+  if (!lines) {
+    return NextResponse.json({ error: "Service not found" }, { status: 404 });
+  }
+  const categoryId = lines[0].categoryId;
+  const durationMinutes = lines.reduce((sum, l) => sum + l.durationMinutes, 0);
+  const priceCents = lines.reduce((sum, l) => sum + l.priceCents, 0);
+  const depositCents = lines.reduce((sum, l) => sum + (l.depositCents || 0), 0) || null;
+  const serviceLabel = lines.map((l) => l.title).join(", ").slice(0, 255);
+  const uniqueServiceIds = [...new Set(lines.map((l) => l.serviceId))];
 
   let staffId = parsed.data.staffId ?? null;
   if (gate.session.role === "staff") staffId = gate.session.sub;
 
-  const staffCheck = await assertStaffForServices(
-    gate.db,
-    services.map((s) => s.id),
-    staffId,
-  );
+  const staffCheck = await assertStaffForServices(gate.db, uniqueServiceIds, staffId);
   if (!staffCheck.ok) {
     return NextResponse.json({ error: staffCheck.error }, { status: 400 });
   }
@@ -438,7 +451,7 @@ export async function POST(req: Request) {
     const row = await gate.db.appointment.create({
       data: {
         categoryId,
-        serviceId: services[0].id,
+        serviceId: uniqueServiceIds[0],
         staffId,
         clientId,
         seriesId,
@@ -457,13 +470,14 @@ export async function POST(req: Request) {
         serviceLabel,
         policyAcceptedAt: new Date(),
         lines: {
-          create: services.map((s, index) => ({
-            serviceId: s.id,
-            title: s.title,
-            durationMinutes: s.durationMinutes,
-            priceCents: s.priceCents,
-            depositCents: s.depositCents,
-            paymentMode: s.paymentMode,
+          create: lines.map((l, index) => ({
+            serviceId: l.serviceId,
+            variantId: l.variantId,
+            title: l.title,
+            durationMinutes: l.durationMinutes,
+            priceCents: l.priceCents,
+            depositCents: l.depositCents,
+            paymentMode: l.paymentMode,
             sortOrder: index,
           })),
         },

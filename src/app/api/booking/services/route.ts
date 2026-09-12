@@ -75,6 +75,12 @@ export async function GET() {
           services: {
             where: { status: "published", bookable: true },
             orderBy: { sortOrder: "asc" },
+            include: {
+              variants: {
+                where: { status: "published", bookable: true },
+                orderBy: { sortOrder: "asc" },
+              },
+            },
           },
         },
       }),
@@ -96,7 +102,20 @@ export async function GET() {
           slug: c.slug,
           title: c.title,
           summary: c.summary,
-          services: c.services.map((s) => mapChargeable(s, settings.hstRateBps)),
+          services: c.services.map((s) => {
+            const variants = s.variants.map((v) => mapChargeable(v, settings.hstRateBps));
+            const fromPrice = variants.length
+              ? Math.min(...variants.map((v) => v.priceCents))
+              : s.priceCents;
+            return {
+              ...mapChargeable(s, settings.hstRateBps),
+              variants,
+              hasVariants: variants.length > 0,
+              fromPriceCents: fromPrice,
+              fromPriceLabel: formatCad(fromPrice),
+              priceLabel: variants.length ? `from ${formatCad(fromPrice)}` : formatCad(s.priceCents),
+            };
+          }),
         })),
       addons: addons.map((a) => ({
         ...mapChargeable(a, settings.hstRateBps),

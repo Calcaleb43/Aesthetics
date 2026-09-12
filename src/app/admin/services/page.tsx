@@ -18,7 +18,7 @@ export default async function AdminServicesPage({
   return (
     <AdminShell
       title="Services"
-      description="Bookable service kinds under each category. Clients can multi-select across categories during booking."
+      description="Bookable service kinds under each category. Add variants for size/area pricing (clients can multi-select variants)."
     >
       <CollectionWorkspace
         items={services.map((service) => ({
@@ -49,6 +49,7 @@ export default async function AdminServicesPage({
           paymentMode: "deposit",
           bookable: true,
           status: "draft",
+          variants: [],
         }}
         fields={[
           { name: "slug", label: "Slug" },
@@ -65,7 +66,7 @@ export default async function AdminServicesPage({
             name: "priceCents",
             label: "Price (CAD, before tax)",
             type: "money",
-            hint: "Enter dollars — e.g. 85 for $85.00",
+            hint: "Used when there are no variants. With variants, booking uses variant prices.",
           },
           {
             name: "depositCents",
@@ -82,6 +83,12 @@ export default async function AdminServicesPage({
           { name: "bookable", label: "Bookable online", type: "boolean" },
           { name: "sortOrder", label: "Sort order", type: "number" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
+          {
+            name: "variants",
+            label: "Variants (size / area / option)",
+            type: "service-variants",
+            hint: "Optional. Clients pick one or more when booking this service.",
+          },
         ]}
       />
     </AdminShell>

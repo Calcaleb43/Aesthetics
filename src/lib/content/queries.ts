@@ -116,6 +116,19 @@ function mapBookableService(row: {
   categoryId?: string;
   category?: { slug: string } | null;
   categorySlug?: string;
+  variants?: {
+    id?: string;
+    slug: string;
+    title: string;
+    summary: string;
+    sortOrder: number;
+    status: string;
+    durationMinutes: number;
+    priceCents: number;
+    depositCents: number | null;
+    paymentMode: string;
+    bookable: boolean;
+  }[];
 }): ServiceRecord {
   return {
     id: row.id,
@@ -131,6 +144,19 @@ function mapBookableService(row: {
     depositCents: row.depositCents,
     paymentMode: (row.paymentMode as PaymentMode) || "deposit",
     bookable: row.bookable,
+    variants: (row.variants || []).map((v) => ({
+      id: v.id,
+      slug: v.slug,
+      title: v.title,
+      summary: v.summary || "",
+      sortOrder: v.sortOrder,
+      status: v.status,
+      durationMinutes: v.durationMinutes,
+      priceCents: v.priceCents,
+      depositCents: v.depositCents,
+      paymentMode: (v.paymentMode as PaymentMode) || "deposit",
+      bookable: v.bookable,
+    })),
   };
 }
 
@@ -302,7 +328,10 @@ export async function getAdminBookableServices(): Promise<ServiceRecord[]> {
   try {
     const rows = await getPrisma().service.findMany({
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        variants: { orderBy: { sortOrder: "asc" } },
+      },
     });
     return rows.map(mapBookableService);
   } catch {
@@ -340,7 +369,13 @@ export async function getPublishedBookableServices(categorySlug?: string): Promi
         ...(categorySlug ? { category: { slug: categorySlug } } : {}),
       },
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }],
-      include: { category: { select: { slug: true } } },
+      include: {
+        category: { select: { slug: true } },
+        variants: {
+          where: { status: "published", bookable: true },
+          orderBy: { sortOrder: "asc" },
+        },
+      },
     });
     return rows.map(mapBookableService);
   } catch {

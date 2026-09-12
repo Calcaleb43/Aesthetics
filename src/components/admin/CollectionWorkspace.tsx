@@ -7,7 +7,20 @@ import { AdminEditor, CollectionPills } from "@/components/admin/AdminEditor";
 type Field = {
   name: string;
   label: string;
-  type?: "text" | "textarea" | "select" | "number" | "money" | "json" | "url-list" | "value-list" | "boolean" | "faq-items";
+  type?:
+    | "text"
+    | "textarea"
+    | "select"
+    | "number"
+    | "money"
+    | "json"
+    | "url-list"
+    | "media"
+    | "media-list"
+    | "value-list"
+    | "boolean"
+    | "faq-items"
+    | "service-variants";
   options?: string[];
   rows?: number;
   hint?: string;

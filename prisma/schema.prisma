@@ -128,9 +128,33 @@ model Service {
   appointments    Appointment[]
   appointmentLines AppointmentService[]
   staff           StaffService[]
+  variants        ServiceVariant[]
 
   @@index([categoryId, sortOrder])
   @@map("services")
+}
+
+model ServiceVariant {
+  id               String               @id @default(uuid()) @db.Uuid
+  serviceId        String               @map("service_id") @db.Uuid
+  service          Service              @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  slug             String               @db.VarChar(160)
+  title            String               @db.VarChar(200)
+  summary          String               @default("")
+  sortOrder        Int                  @default(0) @map("sort_order")
+  status           String               @default("draft") @db.VarChar(20)
+  durationMinutes  Int                  @default(30) @map("duration_minutes")
+  priceCents       Int                  @default(0) @map("price_cents")
+  depositCents     Int?                 @map("deposit_cents")
+  paymentMode      String               @default("deposit") @map("payment_mode") @db.VarChar(20)
+  bookable         Boolean              @default(true)
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  appointmentLines AppointmentService[]
+
+  @@unique([serviceId, slug])
+  @@index([serviceId, sortOrder])
+  @@map("service_variants")
 }
 
 model Addon {
@@ -192,12 +216,20 @@ model CareGuide {
 }
 
 model MediaAsset {
-  id        String   @id @default(uuid()) @db.Uuid
-  url       String
-  alt       String   @default("")
-  label     String   @default("") @db.VarChar(200)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String   @id @default(uuid()) @db.Uuid
+  url         String
+  alt         String   @default("")
+  label       String   @default("") @db.VarChar(200)
+  pathname    String?  @db.VarChar(500)
+  contentType String?  @map("content_type") @db.VarChar(120)
+  bytes       Int?
+  width       Int?
+  height      Int?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  @@index([createdAt])
+  @@index([label])
   @@map("media_assets")
 }
 
@@ -274,21 +306,24 @@ model Appointment {
 }
 
 model AppointmentService {
-  id              String      @id @default(uuid()) @db.Uuid
-  appointmentId   String      @map("appointment_id") @db.Uuid
-  appointment     Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  serviceId       String      @map("service_id") @db.Uuid
-  service         Service     @relation(fields: [serviceId], references: [id], onDelete: Restrict)
-  title           String      @db.VarChar(200)
-  durationMinutes Int         @map("duration_minutes")
-  priceCents      Int         @map("price_cents")
-  depositCents    Int?        @map("deposit_cents")
-  paymentMode     String      @map("payment_mode") @db.VarChar(20)
-  sortOrder       Int         @default(0) @map("sort_order")
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  id              String          @id @default(uuid()) @db.Uuid
+  appointmentId   String          @map("appointment_id") @db.Uuid
+  appointment     Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId       String          @map("service_id") @db.Uuid
+  service         Service         @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  variantId       String?         @map("variant_id") @db.Uuid
+  variant         ServiceVariant? @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  title           String          @db.VarChar(200)
+  durationMinutes Int             @map("duration_minutes")
+  priceCents      Int             @map("price_cents")
+  depositCents    Int?            @map("deposit_cents")
+  paymentMode     String          @map("payment_mode") @db.VarChar(20)
+  sortOrder       Int             @default(0) @map("sort_order")
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([appointmentId])
   @@index([serviceId])
+  @@index([variantId])
   @@map("appointment_services")
 }
 

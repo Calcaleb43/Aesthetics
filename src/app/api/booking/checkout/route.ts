@@ -10,24 +10,39 @@ import {
 import { announceAppointmentBooked } from "@/lib/booking/announce";
 import { upsertClient } from "@/lib/booking/clients";
 import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
-import { findBookableAddons, findBookableServices, staffForAllServices } from "@/lib/booking/service";
+import {
+  findBookableAddons,
+  normalizeBookingItems,
+  resolveBookingItems,
+  staffForAllServices,
+} from "@/lib/booking/service";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 
-const schema = z.object({
-  categoryId: z.string().uuid().optional(),
-  serviceIds: z.array(z.string().uuid()).min(1),
-  addonIds: z.array(z.string().uuid()).optional(),
-  startsAt: z.string().datetime(),
-  staffId: z.string().uuid().nullable().optional(),
-  clientName: z.string().min(1).max(160),
-  clientEmail: z.string().email().max(255),
-  clientPhone: z.string().max(64).optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  policyAccepted: z.literal(true),
+const itemSchema = z.object({
+  serviceId: z.string().uuid(),
+  variantIds: z.array(z.string().uuid()).optional(),
 });
+
+const schema = z
+  .object({
+    categoryId: z.string().uuid().optional(),
+    items: z.array(itemSchema).min(1).optional(),
+    serviceIds: z.array(z.string().uuid()).min(1).optional(),
+    addonIds: z.array(z.string().uuid()).optional(),
+    startsAt: z.string().datetime(),
+    staffId: z.string().uuid().nullable().optional(),
+    clientName: z.string().min(1).max(160),
+    clientEmail: z.string().email().max(255),
+    clientPhone: z.string().max(64).optional().nullable(),
+    notes: z.string().max(2000).optional().nullable(),
+    policyAccepted: z.literal(true),
+  })
+  .refine((v) => (v.items?.length || 0) > 0 || (v.serviceIds?.length || 0) > 0, {
+    message: "items or serviceIds required",
+  });
 
 export async function POST(req: Request) {
   if (!hasDatabase()) {
@@ -56,12 +71,20 @@ export async function POST(req: Request) {
     data: { status: "expired" },
   });
 
-  const services = await findBookableServices(db, parsed.data.serviceIds);
-  if (!services) {
+  const bookingItems = normalizeBookingItems({
+    items: parsed.data.items,
+    serviceIds: parsed.data.serviceIds,
+  });
+  if (!bookingItems) {
     return NextResponse.json({ error: "Services not available" }, { status: 404 });
   }
 
-  const categoryIds = [...new Set(services.map((s) => s.categoryId))];
+  const lines = await resolveBookingItems(db, bookingItems);
+  if (!lines) {
+    return NextResponse.json({ error: "Services or variants not available" }, { status: 404 });
+  }
+
+  const categoryIds = [...new Set(lines.map((l) => l.categoryId))];
   if (parsed.data.categoryId && !categoryIds.includes(parsed.data.categoryId)) {
     return NextResponse.json({ error: "Category does not match selected services" }, { status: 400 });
   }
@@ -73,11 +96,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Add-ons not available for the selected services" }, { status: 404 });
   }
 
-  const categoryId = parsed.data.categoryId || services[0].categoryId;
+  const categoryId = parsed.data.categoryId || lines[0].categoryId;
   const durationMinutes =
-    services.reduce((sum, s) => sum + s.durationMinutes, 0) +
+    lines.reduce((sum, l) => sum + l.durationMinutes, 0) +
     addons.reduce((sum, a) => sum + a.durationMinutes, 0);
-  const titles = [...services.map((s) => s.title), ...addons.map((a) => a.title)];
+  const titles = [...lines.map((l) => l.title), ...addons.map((a) => a.title)];
   const serviceLabel = titles.join(", ").slice(0, 255);
 
   const startsAt = new Date(parsed.data.startsAt);
@@ -86,7 +109,7 @@ export async function POST(req: Request) {
   }
   const endsAt = addMinutes(startsAt, durationMinutes);
   const holds = activeHoldStatuses();
-  const serviceIds = services.map((s) => s.id);
+  const serviceIds = [...new Set(lines.map((l) => l.serviceId))];
 
   const assigned = await staffForAllServices(db, serviceIds);
 
@@ -205,7 +228,7 @@ export async function POST(req: Request) {
     staffId = null;
   }
 
-  const charge = multiChargeBreakdown([...services, ...addons], settings.hstRateBps);
+  const charge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps);
   const instantlyConfirmed = charge.paymentMode === "none" || charge.totalCents <= 0;
 
   const clientName = parsed.data.clientName.trim();
@@ -221,7 +244,7 @@ export async function POST(req: Request) {
   const appointment = await db.appointment.create({
     data: {
       categoryId,
-      serviceId: services[0].id,
+      serviceId: serviceIds[0],
       staffId,
       clientId: client.id,
       startsAt,
@@ -239,13 +262,14 @@ export async function POST(req: Request) {
       serviceLabel,
       policyAcceptedAt: new Date(),
       lines: {
-        create: services.map((s, index) => ({
-          serviceId: s.id,
-          title: s.title,
-          durationMinutes: s.durationMinutes,
-          priceCents: s.priceCents,
-          depositCents: s.depositCents,
-          paymentMode: s.paymentMode,
+        create: lines.map((l, index) => ({
+          serviceId: l.serviceId,
+          variantId: l.variantId,
+          title: l.title,
+          durationMinutes: l.durationMinutes,
+          priceCents: l.priceCents,
+          depositCents: l.depositCents,
+          paymentMode: l.paymentMode,
           sortOrder: index,
         })),
       },

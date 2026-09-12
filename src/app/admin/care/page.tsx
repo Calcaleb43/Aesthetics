@@ -39,7 +39,7 @@ export default async function AdminCarePage({
         fields={[
           { name: "categorySlug", label: "Category slug" },
           { name: "title", label: "Title" },
-          { name: "coverImage", label: "Cover image URL" },
+          { name: "coverImage", label: "Cover image", type: "media", hint: "Choose from Media Library" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
           { name: "content", label: "Content", type: "textarea", rows: 20 },
         ]}

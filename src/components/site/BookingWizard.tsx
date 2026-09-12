@@ -19,6 +19,10 @@ type BookableService = {
   chargeBaseLabel: string;
   taxLabel: string;
   chargeTotalCents: number;
+  variants?: BookableService[];
+  hasVariants?: boolean;
+  fromPriceCents?: number;
+  fromPriceLabel?: string;
 };
 
 type BookableCategory = {
@@ -33,11 +37,27 @@ type BookableAddon = BookableService & {
   categoryIds: string[];
 };
 
+type ResolvedLine = {
+  serviceId: string;
+  variantId: string | null;
+  title: string;
+  durationMinutes: number;
+  priceCents: number;
+  depositCents: number | null;
+  paymentMode: string;
+  priceLabel: string;
+  categoryTitle?: string;
+};
+
 type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
 
 type StepName = "Services" | "Add-ons" | "Date" | "Time" | "Details" | "Review" | "Pay";
 
 const ALL_STEPS: StepName[] = ["Services", "Add-ons", "Date", "Time", "Details", "Review", "Pay"];
+
+function serviceHasVariants(s: BookableService) {
+  return Boolean(s.hasVariants || (s.variants && s.variants.length > 0));
+}
 
 export function BookingWizard({
   initialSlug,
@@ -52,6 +72,7 @@ export function BookingWizard({
   const [enabled, setEnabled] = useState(true);
   const [loadingServices, setLoadingServices] = useState(true);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string[]>>({});
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
@@ -82,6 +103,59 @@ export function BookingWizard({
     [allServices, selectedServiceIds],
   );
 
+  const bookingItems = useMemo(
+    () =>
+      selectedServices.map((s) => ({
+        serviceId: s.id,
+        variantIds: serviceHasVariants(s) ? selectedVariantIds[s.id] || [] : [],
+      })),
+    [selectedServices, selectedVariantIds],
+  );
+
+  const selectionComplete = useMemo(
+    () =>
+      selectedServices.length > 0 &&
+      selectedServices.every((s) => !serviceHasVariants(s) || (selectedVariantIds[s.id] || []).length > 0),
+    [selectedServices, selectedVariantIds],
+  );
+
+  const serviceLines = useMemo(() => {
+    const lines: ResolvedLine[] = [];
+    for (const s of selectedServices) {
+      if (serviceHasVariants(s)) {
+        const ids = selectedVariantIds[s.id] || [];
+        for (const vid of ids) {
+          const v = (s.variants || []).find((x) => x.id === vid);
+          if (!v) continue;
+          lines.push({
+            serviceId: s.id,
+            variantId: v.id,
+            title: `${s.title}: ${v.title}`,
+            durationMinutes: v.durationMinutes,
+            priceCents: v.priceCents,
+            depositCents: v.depositCents,
+            paymentMode: v.paymentMode,
+            priceLabel: v.priceLabel,
+            categoryTitle: s.categoryTitle,
+          });
+        }
+      } else {
+        lines.push({
+          serviceId: s.id,
+          variantId: null,
+          title: s.title,
+          durationMinutes: s.durationMinutes,
+          priceCents: s.priceCents,
+          depositCents: s.depositCents,
+          paymentMode: s.paymentMode,
+          priceLabel: s.priceLabel,
+          categoryTitle: s.categoryTitle,
+        });
+      }
+    }
+    return lines;
+  }, [selectedServices, selectedVariantIds]);
+
   const selectedCategoryIds = useMemo(
     () => [...new Set(selectedServices.map((s) => s.categoryId))],
     [selectedServices],
@@ -109,7 +183,7 @@ export function BookingWizard({
   const stepName = steps[step] || "Services";
 
   const totals = useMemo(() => {
-    const lines = [...selectedServices, ...selectedAddons];
+    const lines = [...serviceLines, ...selectedAddons];
     if (!lines.length) {
       return {
         durationMinutes: 0,
@@ -133,7 +207,7 @@ export function BookingWizard({
       totalCents: charge.totalCents,
       titles: lines.map((s) => s.title).join(", "),
     };
-  }, [selectedServices, selectedAddons, hstRateBps]);
+  }, [serviceLines, selectedAddons, hstRateBps]);
 
   const appointmentLabel = useMemo(() => {
     if (!slotStart) return "";
@@ -167,9 +241,15 @@ export function BookingWizard({
   }
 
   function canLeaveStep(name: StepName) {
-    if (name === "Services" && !selectedServiceIds.length) {
-      setError("Select at least one service.");
-      return false;
+    if (name === "Services") {
+      if (!selectedServiceIds.length) {
+        setError("Select at least one service.");
+        return false;
+      }
+      if (!selectionComplete) {
+        setError("Choose at least one option for each selected service.");
+        return false;
+      }
     }
     if (name === "Date" && !selectedDay) {
       setError("Pick a date to continue.");
@@ -189,7 +269,7 @@ export function BookingWizard({
         return false;
       }
     }
-    if ((name === "Review" || name === "Pay") && (!selectedServiceIds.length || !slotStart)) {
+    if ((name === "Review" || name === "Pay") && (!selectionComplete || !slotStart)) {
       setError("Complete earlier steps first.");
       return false;
     }
@@ -201,10 +281,9 @@ export function BookingWizard({
     if (index === step) return false;
     if (index < step) return true;
     if (index > furthest) return false;
-    // Must still satisfy prerequisites for the target
     const target = steps[index];
     if (target === "Add-ons" || target === "Date" || target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
-      if (!selectedServiceIds.length) return false;
+      if (!selectionComplete) return false;
     }
     if (target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
       if (!selectedDay) return false;
@@ -256,7 +335,7 @@ export function BookingWizard({
   }, [initialSlug]);
 
   useEffect(() => {
-    if (!selectedServiceIds.length || !selectedDay) {
+    if (!selectionComplete || !selectedDay) {
       setSlots([]);
       return;
     }
@@ -271,7 +350,7 @@ export function BookingWizard({
         const params = new URLSearchParams({
           from,
           to,
-          serviceIds: selectedServiceIds.join(","),
+          items: JSON.stringify(bookingItems),
         });
         if (selectedAddonIds.length) params.set("addonIds", selectedAddonIds.join(","));
         const res = await fetch(`/api/booking/availability?${params}`);
@@ -292,7 +371,7 @@ export function BookingWizard({
     return () => {
       cancelled = true;
     };
-  }, [selectedServiceIds, selectedAddonIds, selectedDay]);
+  }, [selectionComplete, bookingItems, selectedAddonIds, selectedDay]);
 
   useEffect(() => {
     const normalized = email.trim().toLowerCase();
@@ -334,7 +413,39 @@ export function BookingWizard({
   }
 
   function toggleService(id: string) {
-    setSelectedServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelectedServiceIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      return next;
+    });
+    setSelectedVariantIds((prev) => {
+      if (prev[id]) {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      }
+      return prev;
+    });
+    setSelectedDay(null);
+    setSlotStart("");
+    setSlotStaffId(null);
+    setFurthest(0);
+  }
+
+  function toggleVariant(serviceId: string, variantId: string) {
+    const current = selectedVariantIds[serviceId] || [];
+    const nextVariants = current.includes(variantId)
+      ? current.filter((id) => id !== variantId)
+      : [...current, variantId];
+
+    if (!nextVariants.length) {
+      setSelectedServiceIds((ids) => ids.filter((id) => id !== serviceId));
+      setSelectedVariantIds((prev) => {
+        const { [serviceId]: _, ...rest } = prev;
+        return rest;
+      });
+    } else {
+      setSelectedServiceIds((ids) => (ids.includes(serviceId) ? ids : [...ids, serviceId]));
+      setSelectedVariantIds((prev) => ({ ...prev, [serviceId]: nextVariants }));
+    }
     setSelectedDay(null);
     setSlotStart("");
     setSlotStaffId(null);
@@ -367,7 +478,7 @@ export function BookingWizard({
   }
 
   function submitCheckout() {
-    if (!selectedServiceIds.length || !slotStart) return;
+    if (!selectionComplete || !slotStart) return;
     if (!canLeaveStep("Review") && stepName !== "Pay") return;
     setError("");
     startTransition(async () => {
@@ -376,7 +487,7 @@ export function BookingWizard({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            serviceIds: selectedServiceIds,
+            items: bookingItems,
             addonIds: selectedAddonIds,
             startsAt: slotStart,
             staffId: slotStaffId,
@@ -486,7 +597,7 @@ export function BookingWizard({
       {stepName === "Services" && (
         <div>
           <p className="mb-4 text-sm text-[var(--ink-soft)]">
-            Select one or more services from any category for this visit.
+            Select one or more services. If a service has options (size/area), choose one or more.
           </p>
           <div className="grid gap-3">
             {categories.map((c) => {
@@ -519,7 +630,59 @@ export function BookingWizard({
                   {open ? (
                     <div className="grid gap-3 border-t border-black/10 px-4 py-4 sm:px-5">
                       {c.services.map((s) => {
+                        const hasVariants = serviceHasVariants(s);
                         const active = selectedServiceIds.includes(s.id);
+                        const chosenVariants = selectedVariantIds[s.id] || [];
+                        if (hasVariants) {
+                          return (
+                            <div
+                              key={s.id}
+                              className={`rounded-2xl border px-5 py-4 ${
+                                active ? "border-black bg-black text-white" : "border-black/15"
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="font-semibold tracking-wide">{s.title}</p>
+                                  <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                                    Choose one or more · {s.priceLabel}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}
+                                >
+                                  {chosenVariants.length ? `${chosenVariants.length} selected` : "Options"}
+                                </span>
+                              </div>
+                              <div className="mt-3 grid gap-2">
+                                {(s.variants || []).map((v) => {
+                                  const on = chosenVariants.includes(v.id);
+                                  return (
+                                    <button
+                                      key={v.id}
+                                      type="button"
+                                      onClick={() => toggleVariant(s.id, v.id)}
+                                      className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                                        on
+                                          ? active
+                                            ? "border-white/40 bg-white/10"
+                                            : "border-black bg-black text-white"
+                                          : active
+                                            ? "border-white/20 hover:border-white/40"
+                                            : "border-black/10 hover:border-black/30"
+                                      }`}
+                                    >
+                                      <span className="font-medium">{v.title}</span>
+                                      <span className={`mt-0.5 block text-xs ${on || active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
+                                        {v.durationMinutes} min · {v.priceLabel}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
                         return (
                           <button
                             key={s.id}
@@ -556,13 +719,14 @@ export function BookingWizard({
               );
             })}
           </div>
-          {selectedServices.length ? (
+          {serviceLines.length ? (
             <p className="mt-4 text-sm text-[var(--ink-soft)]">
-              {selectedServices.length} selected · {selectedServices.reduce((n, s) => n + s.durationMinutes, 0)} min ·
-              from {formatCad(selectedServices.reduce((n, s) => n + s.priceCents, 0))}
+              {serviceLines.length} option{serviceLines.length === 1 ? "" : "s"} ·{" "}
+              {serviceLines.reduce((n, l) => n + l.durationMinutes, 0)} min ·{" "}
+              {formatCad(serviceLines.reduce((n, l) => n + l.priceCents, 0))}
             </p>
           ) : null}
-          <NavFooter continueLabel="Continue" onContinue={goForward} continueDisabled={!selectedServiceIds.length} />
+          <NavFooter continueLabel="Continue" onContinue={goForward} continueDisabled={!selectionComplete} />
         </div>
       )}
 
@@ -803,7 +967,7 @@ export function BookingWizard({
         </div>
       )}
 
-      {stepName === "Review" && selectedServices.length > 0 && slotStart && (
+      {stepName === "Review" && selectionComplete && slotStart && (
         <div className="max-w-2xl">
           <h3 className="display text-2xl md:text-3xl">Review your booking</h3>
           <p className="mt-2 text-sm text-[var(--ink-soft)]">
@@ -819,8 +983,8 @@ export function BookingWizard({
                 </button>
               </div>
               <ul className="mt-3 space-y-2 text-sm">
-                {selectedServices.map((s) => (
-                  <li key={s.id} className="flex items-start justify-between gap-3">
+                {serviceLines.map((s) => (
+                  <li key={`${s.serviceId}-${s.variantId || "base"}`} className="flex items-start justify-between gap-3">
                     <span>
                       {s.title}
                       {s.categoryTitle ? (
@@ -916,11 +1080,11 @@ export function BookingWizard({
         </div>
       )}
 
-      {stepName === "Pay" && selectedServices.length > 0 && slotStart && (
+      {stepName === "Pay" && selectionComplete && slotStart && (
         <div className="max-w-xl rounded-2xl border border-black/10 p-6">
           <h3 className="display text-2xl">Confirm &amp; pay</h3>
           <p className="mt-2 text-sm text-[var(--ink-soft)]">
-            {selectedServices.length} service{selectedServices.length === 1 ? "" : "s"}
+            {serviceLines.length} item{serviceLines.length === 1 ? "" : "s"}
             {selectedAddons.length
               ? ` · ${selectedAddons.length} add-on${selectedAddons.length === 1 ? "" : "s"}`
               : ""}{" "}

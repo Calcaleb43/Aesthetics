@@ -48,7 +48,7 @@ export default async function AdminPagesPage({
           { name: "title", label: "Title" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
           { name: "seoTitle", label: "SEO title" },
-          { name: "coverImage", label: "Cover image URL" },
+          { name: "coverImage", label: "Cover image", type: "media", hint: "Choose from Media Library" },
           { name: "excerpt", label: "Excerpt", type: "textarea", rows: 3 },
           {
             name: "content",

@@ -58,6 +58,20 @@ export type CategoryRecord = {
   id?: string;
 };
 
+export type ServiceVariantRecord = {
+  id?: string;
+  slug: string;
+  title: string;
+  summary: string;
+  sortOrder: number;
+  status: string;
+  durationMinutes: number;
+  priceCents: number;
+  depositCents: number | null;
+  paymentMode: PaymentMode;
+  bookable: boolean;
+};
+
 export type ServiceRecord = {
   slug: string;
   title: string;
@@ -72,6 +86,7 @@ export type ServiceRecord = {
   paymentMode: PaymentMode;
   bookable: boolean;
   id?: string;
+  variants?: ServiceVariantRecord[];
 };
 
 export type AddonRecord = {
@@ -218,6 +233,7 @@ function mapSeedBookableService(s: (typeof seed.services)[number]): ServiceRecor
     depositCents: s.depositCents ?? null,
     paymentMode: ((s.paymentMode || "deposit") as PaymentMode),
     bookable: s.bookable ?? true,
+    variants: [],
   };
 }
 

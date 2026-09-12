@@ -51,7 +51,7 @@ export default async function AdminCategoriesPage({
           { name: "shortTitle", label: "Short title" },
           { name: "tagline", label: "Tagline" },
           { name: "summary", label: "Summary", type: "textarea", rows: 4 },
-          { name: "coverImage", label: "Cover image URL" },
+          { name: "coverImage", label: "Cover image", type: "media", hint: "Choose from Media Library" },
           { name: "bookingUrl", label: "External booking URL (optional fallback)" },
           { name: "sortOrder", label: "Sort order", type: "number" },
           { name: "featured", label: "Featured on homepage", type: "boolean" },
