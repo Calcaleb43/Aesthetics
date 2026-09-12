@@ -260,8 +260,8 @@ export function BookingWizard({
       return false;
     }
     if (name === "Details") {
-      if (!name.trim() || !email.trim()) {
-        setError("Name and email are required.");
+      if (!name.trim() || !email.trim() || !phone.trim()) {
+        setError("Full name, email, and phone are required.");
         return false;
       }
       if (!policyAccepted) {
@@ -292,7 +292,7 @@ export function BookingWizard({
       if (!slotStart) return false;
     }
     if (target === "Review" || target === "Pay") {
-      if (!name.trim() || !email.trim() || !policyAccepted) return false;
+      if (!name.trim() || !email.trim() || !phone.trim() || !policyAccepted) return false;
     }
     return true;
   }
@@ -493,7 +493,7 @@ export function BookingWizard({
             staffId: slotStaffId,
             clientName: name,
             clientEmail: email,
-            clientPhone: phone || null,
+            clientPhone: phone.trim(),
             notes: notes || null,
             policyAccepted: true,
           }),
@@ -930,12 +930,15 @@ export function BookingWizard({
           <label className="grid gap-1 text-sm">
             Phone
             <input
+              type="tel"
               className="admin-input !bg-white !text-black"
               value={phone}
               onChange={(e) => {
                 setPhoneDirty(true);
                 setPhone(e.target.value);
               }}
+              required
+              autoComplete="tel"
             />
           </label>
           <label className="grid gap-1 text-sm">
@@ -1045,7 +1048,7 @@ export function BookingWizard({
               </div>
               <p className="mt-3 text-sm">{name}</p>
               <p className="text-sm text-[var(--ink-soft)]">{email}</p>
-              {phone ? <p className="text-sm text-[var(--ink-soft)]">{phone}</p> : null}
+              <p className="text-sm text-[var(--ink-soft)]">{phone}</p>
               {notes ? <p className="mt-2 text-sm text-[var(--ink-soft)]">Notes: {notes}</p> : null}
             </section>
 

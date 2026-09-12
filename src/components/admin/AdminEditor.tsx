@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MediaPicker, type MediaItem } from "@/components/admin/MediaPicker";
 
@@ -26,6 +26,14 @@ type Field = {
   rows?: number;
   hint?: string;
   readOnly?: boolean;
+  section?: string;
+  sectionHint?: string;
+};
+
+export type EditorSection = {
+  title: string;
+  description?: string;
+  fields: Field[];
 };
 
 type FaqItem = { question: string; answer: string };
@@ -95,6 +103,7 @@ export function AdminEditor({
   method = "PUT",
   initial,
   fields,
+  sections,
   identityKey,
   previewHref,
   deleteEndpoint,
@@ -104,7 +113,8 @@ export function AdminEditor({
   endpoint: string;
   method?: "PUT" | "POST" | "PATCH";
   initial: Record<string, unknown>;
-  fields: Field[];
+  fields?: Field[];
+  sections?: EditorSection[];
   identityKey?: string;
   previewHref?: string | null;
   deleteEndpoint?: string;
@@ -113,8 +123,31 @@ export function AdminEditor({
 }) {
   const router = useRouter();
 
+  const resolvedSections = useMemo<EditorSection[]>(() => {
+    if (sections?.length) return sections;
+    if (!fields?.length) return [];
+
+    const groups: EditorSection[] = [];
+    for (const field of fields) {
+      const title = field.section || "";
+      const last = groups[groups.length - 1];
+      if (last && last.title === title) {
+        last.fields.push(field);
+      } else {
+        groups.push({
+          title,
+          description: field.sectionHint,
+          fields: [field],
+        });
+      }
+    }
+    return groups;
+  }, [sections, fields]);
+
+  const allFields = useMemo(() => resolvedSections.flatMap((s) => s.fields), [resolvedSections]);
+
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(fields.map((f) => [f.name, stringifyInitial(initial[f.name], f.type)])),
+    Object.fromEntries(allFields.map((f) => [f.name, stringifyInitial(initial[f.name], f.type)])),
   );
   const [faqItems, setFaqItems] = useState<FaqItem[]>(() =>
     Array.isArray(initial.items) ? (initial.items as FaqItem[]) : [],
@@ -140,7 +173,7 @@ export function AdminEditor({
   const [pickerField, setPickerField] = useState<string | null>(null);
 
   useEffect(() => {
-    setValues(Object.fromEntries(fields.map((f) => [f.name, stringifyInitial(initial[f.name], f.type)])));
+    setValues(Object.fromEntries(allFields.map((f) => [f.name, stringifyInitial(initial[f.name], f.type)])));
     setFaqItems(Array.isArray(initial.items) ? (initial.items as FaqItem[]) : []);
     setValueItems(Array.isArray(initial.values) ? (initial.values as ValueItem[]) : []);
     const rows = Array.isArray(initial.variants) ? (initial.variants as VariantItem[]) : [];
@@ -154,9 +187,9 @@ export function AdminEditor({
       ),
     );
     setStatus({ tone: "", text: "" });
-  }, [identityKey, initial, fields]);
+  }, [identityKey, initial, allFields]);
 
-  const pickerMeta = fields.find((f) => f.name === pickerField);
+  const pickerMeta = allFields.find((f) => f.name === pickerField);
 
   function applyMediaSelection(fieldName: string, selected: MediaItem[], multiple: boolean) {
     if (multiple) {
@@ -180,7 +213,7 @@ export function AdminEditor({
     setStatus({ tone: "", text: "" });
 
     const payload: Record<string, unknown> = {};
-    for (const field of fields) {
+    for (const field of allFields) {
       const raw = values[field.name] ?? "";
       if (field.type === "number") payload[field.name] = Number(raw);
       else if (field.type === "money") {
@@ -280,7 +313,7 @@ export function AdminEditor({
 
   return (
     <>
-    <form onSubmit={onSubmit} className="grid max-w-3xl gap-5">
+    <form onSubmit={onSubmit} className="grid max-w-3xl gap-8">
       <div className="flex flex-wrap items-center gap-3">
         {previewHref ? (
           <a
@@ -294,7 +327,20 @@ export function AdminEditor({
         ) : null}
       </div>
 
-      {fields.map((field) => {
+      {resolvedSections.map((section) => (
+        <section key={section.title || "general"} className="grid gap-5">
+          {section.title ? (
+            <header className="border-b border-white/10 pb-3">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-white/85">
+                {section.title}
+              </h3>
+              {section.description ? (
+                <p className="mt-1.5 text-xs leading-5 text-white/45 whitespace-pre-wrap">{section.description}</p>
+              ) : null}
+            </header>
+          ) : null}
+          <div className="grid gap-5">
+            {section.fields.map((field) => {
         if (field.type === "faq-items") {
           return (
             <div key={field.name} className="grid gap-3">
@@ -723,8 +769,11 @@ export function AdminEditor({
           </label>
         );
       })}
+          </div>
+        </section>
+      ))}
 
-      <div className="flex flex-wrap items-center gap-3 pt-2">
+      <div className="flex flex-wrap items-center gap-3 border-t border-white/10 pt-5">
         <button type="submit" disabled={saving} className="admin-btn">
           {saving ? "Saving..." : "Save changes"}
         </button>

@@ -35,9 +35,9 @@ const schema = z
     addonIds: z.array(z.string().uuid()).optional(),
     startsAt: z.string().datetime(),
     staffId: z.string().uuid().nullable().optional(),
-    clientName: z.string().min(1).max(160),
-    clientEmail: z.string().email().max(255),
-    clientPhone: z.string().max(64).optional().nullable(),
+  clientName: z.string().min(1).max(160),
+  clientEmail: z.string().email().max(255),
+  clientPhone: z.string().min(1).max(64),
     notes: z.string().max(2000).optional().nullable(),
     policyAccepted: z.literal(true),
   })
@@ -236,7 +236,10 @@ export async function POST(req: Request) {
 
   const clientName = parsed.data.clientName.trim();
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
-  const clientPhone = parsed.data.clientPhone?.trim() || null;
+  const clientPhone = parsed.data.clientPhone.trim();
+  if (!clientPhone) {
+    return NextResponse.json({ error: "Phone number is required" }, { status: 400 });
+  }
 
   const client = await upsertClient(db, {
     email: clientEmail,
