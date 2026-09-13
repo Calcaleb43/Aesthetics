@@ -25,6 +25,7 @@ type NavProps = {
 };
 
 const PRIMARY_LINKS = [
+  { href: "/", label: "Home" },
   { href: "/about", label: "About" },
   { href: "/care", label: "Care" },
   { href: "/faqs", label: "FAQs" },
@@ -73,6 +74,13 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
           className="hidden items-center justify-center gap-0.5 text-[0.68rem] tracking-[0.14em] uppercase lg:flex"
           aria-label="Primary"
         >
+          <Link
+            href="/"
+            className={`nav-link px-3 py-2 ${linkActive(pathname, "/") ? "is-active" : ""}`}
+          >
+            Home
+          </Link>
+
           <div
             className="relative"
             onMouseEnter={() => setServicesOpen(true)}
@@ -121,7 +129,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
             </div>
           </div>
 
-          {PRIMARY_LINKS.map((link) => (
+          {PRIMARY_LINKS.filter((link) => link.href !== "/").map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -130,6 +138,9 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
               {link.label}
             </Link>
           ))}
+          <Link href="/policies" className="nav-link is-active px-3 py-2" aria-current="page">
+            Policies
+          </Link>
         </nav>
 
         <div className="flex items-center justify-self-end gap-2 sm:gap-3">
@@ -217,7 +228,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
               </div>
             )}
 
-            {PRIMARY_LINKS.map((link) => (
+            {PRIMARY_LINKS.filter((link) => link.href !== "/").map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -231,7 +242,8 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
             <Link
               href="/policies"
               onClick={() => setOpen(false)}
-              className={`mobile-nav-link ${linkActive(pathname, "/policies") ? "is-active" : ""}`}
+              className="mobile-nav-link is-active"
+              aria-current="page"
             >
               Policies
             </Link>
