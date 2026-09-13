@@ -2,7 +2,13 @@
 
 import { FormEvent, useState } from "react";
 
-export function ContactForm({ serviceOptions }: { serviceOptions: string[] }) {
+export function ContactForm({
+  serviceOptions,
+  studioEmail = "info@aniekanvasaesthetics.ca",
+}: {
+  serviceOptions: string[];
+  studioEmail?: string;
+}) {
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const options = [...serviceOptions, "General consultation"].filter(
@@ -27,7 +33,7 @@ export function ContactForm({ serviceOptions }: { serviceOptions: string[] }) {
       e.currentTarget.reset();
     } catch {
       setStatus("error");
-      setMessage("Something went wrong. Please email Aniekanvas@gmail.com directly.");
+      setMessage(`Something went wrong. Please email ${studioEmail} directly.`);
     }
   }
 

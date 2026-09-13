@@ -5,7 +5,7 @@ export default function AdminEmailPage() {
   return (
     <AdminShell
       title="Email"
-      description="Branded transactional templates, delivery log, and Resend test sends."
+      description="Compose to a client, bulk campaigns, custom templates, transactional previews, and delivery log."
     >
       <EmailHubClient />
     </AdminShell>

@@ -53,7 +53,10 @@ export default async function ContactPage() {
           </ScrollReveal>
           <ScrollReveal variant="right" delay={120}>
             <div className="border border-black/10 bg-[var(--bg-deep)] p-6 md:p-8">
-              <ContactForm serviceOptions={services.map((s) => s.title)} />
+              <ContactForm
+                serviceOptions={services.map((s) => s.title)}
+                studioEmail={settings.email}
+              />
             </div>
           </ScrollReveal>
         </div>

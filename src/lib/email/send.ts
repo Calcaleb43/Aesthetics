@@ -51,6 +51,8 @@ export type SendEmailInput = {
   replyTo?: string | null;
   appointmentId?: string | null;
   inquiryId?: string | null;
+  clientId?: string | null;
+  campaignId?: string | null;
   metadata?: Record<string, unknown>;
   /** When provided, logs to EmailMessage even if DB gate elsewhere failed */
   db?: Database | null;
@@ -76,6 +78,8 @@ async function logMessage(
     error?: string | null;
     appointmentId?: string | null;
     inquiryId?: string | null;
+    clientId?: string | null;
+    campaignId?: string | null;
     metadata?: Record<string, unknown>;
   },
 ) {
@@ -93,6 +97,8 @@ async function logMessage(
         error: data.error || null,
         appointmentId: data.appointmentId || null,
         inquiryId: data.inquiryId || null,
+        clientId: data.clientId || null,
+        campaignId: data.campaignId || null,
         metadata: (data.metadata || {}) as Prisma.InputJsonValue,
       },
     });
@@ -120,6 +126,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       status: "skipped",
       appointmentId: input.appointmentId,
       inquiryId: input.inquiryId,
+      clientId: input.clientId,
+      campaignId: input.campaignId,
       metadata: { ...input.metadata, reason: !resend ? "RESEND_API_KEY unset" : "no recipient" },
     });
     return { skipped: true, status: "skipped", messageId };
@@ -146,6 +154,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         error: result.error.message || String(result.error),
         appointmentId: input.appointmentId,
         inquiryId: input.inquiryId,
+        clientId: input.clientId,
+        campaignId: input.campaignId,
         metadata: input.metadata,
       });
       return { skipped: false, error: true, status: "failed", messageId };
@@ -161,6 +171,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       providerId,
       appointmentId: input.appointmentId,
       inquiryId: input.inquiryId,
+      clientId: input.clientId,
+      campaignId: input.campaignId,
       metadata: input.metadata,
     });
     return { skipped: false, status: "sent", providerId, messageId };
@@ -175,6 +187,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       error: err instanceof Error ? err.message : String(err),
       appointmentId: input.appointmentId,
       inquiryId: input.inquiryId,
+      clientId: input.clientId,
+      campaignId: input.campaignId,
       metadata: input.metadata,
     });
     return { skipped: false, error: true, status: "failed", messageId };

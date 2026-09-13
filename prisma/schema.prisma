@@ -406,6 +406,8 @@ model EmailMessage {
   error         String?
   appointmentId String?  @map("appointment_id") @db.Uuid
   inquiryId     String?  @map("inquiry_id") @db.Uuid
+  clientId      String?  @map("client_id") @db.Uuid
+  campaignId    String?  @map("campaign_id") @db.Uuid
   metadata      Json     @default("{}")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -415,5 +417,23 @@ model EmailMessage {
   @@index([status])
   @@index([appointmentId])
   @@index([inquiryId])
+  @@index([clientId])
+  @@index([campaignId])
   @@map("email_messages")
+}
+
+model EmailTemplate {
+  id          String   @id @default(uuid()) @db.Uuid
+  slug        String   @unique @db.VarChar(120)
+  name        String   @db.VarChar(200)
+  description String   @default("")
+  subject     String   @db.VarChar(255)
+  body        String   @default("")
+  status      String   @default("draft") @db.VarChar(20)
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, sortOrder])
+  @@map("email_templates")
 }

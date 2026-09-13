@@ -11,7 +11,7 @@ export type StudioEmailContext = {
 
 export const DEFAULT_STUDIO: StudioEmailContext = {
   siteName: "Aniekanvas Aesthetics",
-  email: "Aniekanvas@gmail.com",
+  email: "info@aniekanvasaesthetics.ca",
   phone: "(647) 901-8817",
   address: "146 Thirtieth Street, Suite 218, Toronto, Ontario, M8W 3C4",
   instagramUrl: "https://www.instagram.com/aniekanvas_aesthetics/",
