@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getPrisma, hasDatabase } from "@/lib/db";
+import { emailInquiryAlert, emailInquiryReceived } from "@/lib/email/resend";
+import { notifyAdmins } from "@/lib/notifications";
 
 const schema = z.object({
   name: z.string().min(1),
@@ -22,7 +24,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, demo: true });
   }
 
-  await getPrisma().inquiry.create({
+  const db = getPrisma();
+  const inquiry = await db.inquiry.create({
     data: {
       name: parsed.data.name,
       email: parsed.data.email,
@@ -31,6 +34,28 @@ export async function POST(req: Request) {
       message: parsed.data.message,
     },
   });
+
+  const payload = {
+    db,
+    inquiryId: inquiry.id,
+    name: inquiry.name,
+    email: inquiry.email,
+    phone: inquiry.phone,
+    serviceInterest: inquiry.serviceInterest,
+    message: inquiry.message,
+  };
+
+  await Promise.allSettled([
+    emailInquiryReceived(payload),
+    emailInquiryAlert(payload),
+    notifyAdmins(db, {
+      type: "inquiry_new",
+      title: "New inquiry",
+      body: `${inquiry.name}${inquiry.serviceInterest ? ` · ${inquiry.serviceInterest}` : ""}`,
+      href: "/admin/inquiries",
+      metadata: { inquiryId: inquiry.id },
+    }),
+  ]);
 
   return NextResponse.json({ ok: true });
 }

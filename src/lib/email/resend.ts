@@ -1,107 +1,137 @@
-import { Resend } from "resend";
-import { formatCad } from "@/lib/booking/money";
+import type { Database } from "@/lib/db";
+import { loadStudioEmailContext, sendEmail, studioManagerEmails } from "@/lib/email/send";
+import {
+  renderAppointmentBooked,
+  renderAppointmentBookedStaff,
+  renderAppointmentCancelled,
+  renderAppointmentReminder,
+  renderInquiryAlert,
+  renderInquiryReceived,
+  renderTestEmail,
+  type AppointmentEmailVars,
+  type InquiryEmailVars,
+} from "@/lib/email/templates";
 
-let client: Resend | null = null;
-
-function getResend() {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  if (!client) client = new Resend(key);
-  return client;
-}
-
-function fromAddress() {
-  return process.env.EMAIL_FROM || "Aniekanvas Aesthetics <onboarding@resend.dev>";
-}
-
-export async function sendEmail(input: { to: string | string[]; subject: string; html: string }) {
-  const resend = getResend();
-  if (!resend) {
-    console.info("[email] skipped (RESEND_API_KEY unset):", input.subject, input.to);
-    return { skipped: true as const };
-  }
-  try {
-    await resend.emails.send({
-      from: fromAddress(),
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-    });
-    return { skipped: false as const };
-  } catch (err) {
-    console.error("[email] send failed", err);
-    return { skipped: false as const, error: true as const };
-  }
-}
-
-function wrap(body: string) {
-  return `<div style="font-family:Figtree,Arial,sans-serif;line-height:1.6;color:#111;max-width:560px;margin:0 auto">
-    <p style="letter-spacing:0.2em;text-transform:uppercase;color:#9a7a32;font-size:12px">Aniekanvas Aesthetics</p>
-    ${body}
-    <p style="margin-top:32px;font-size:12px;color:#666">146 Thirtieth Street, Suite 218, Toronto</p>
-  </div>`;
-}
-
-export async function emailAppointmentBooked(input: {
-  to: string;
-  clientName: string;
-  serviceTitle: string;
-  whenLabel: string;
-  staffName?: string | null;
-  amountChargedCents?: number;
-  isStaff?: boolean;
-}) {
-  const subject = input.isStaff
-    ? `New booking: ${input.serviceTitle}`
-    : `Booking confirmed: ${input.serviceTitle}`;
-  const html = wrap(`
-    <h1 style="font-size:22px">${input.isStaff ? "New appointment" : "You're booked"}</h1>
-    <p>Hi ${input.isStaff ? input.staffName || "team" : input.clientName},</p>
-    <p><strong>${input.serviceTitle}</strong></p>
-    <p>${input.whenLabel}</p>
-    ${input.staffName && !input.isStaff ? `<p>With ${input.staffName}</p>` : ""}
-    ${input.isStaff ? `<p>Client: ${input.clientName} &lt;${input.to}&gt;</p>` : ""}
-    ${
-      typeof input.amountChargedCents === "number" && input.amountChargedCents > 0
-        ? `<p>Payment received: ${formatCad(input.amountChargedCents)}</p>`
-        : ""
-    }
-  `);
-  return sendEmail({ to: input.to, subject, html });
-}
-
-export async function emailAppointmentCancelled(input: {
-  to: string;
-  clientName: string;
-  serviceTitle: string;
-  whenLabel: string;
-}) {
+export async function emailAppointmentBooked(
+  input: AppointmentEmailVars & {
+    to: string;
+    isStaff?: boolean;
+    appointmentId?: string | null;
+    db?: Database | null;
+  },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const vars = { ...input, studio };
+  const rendered = input.isStaff ? renderAppointmentBookedStaff(vars) : renderAppointmentBooked(vars);
   return sendEmail({
+    db: input.db,
     to: input.to,
-    subject: `Cancelled: ${input.serviceTitle}`,
-    html: wrap(`
-      <h1 style="font-size:22px">Appointment cancelled</h1>
-      <p>Hi ${input.clientName},</p>
-      <p>Your <strong>${input.serviceTitle}</strong> on ${input.whenLabel} has been cancelled.</p>
-      <p>Reply to this studio if you need to rebook.</p>
-    `),
+    toName: input.isStaff ? input.staffName : input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: input.isStaff ? "appointment_booked_staff" : "appointment_booked",
+    appointmentId: input.appointmentId,
+    metadata: { isStaff: Boolean(input.isStaff) },
   });
 }
 
-export async function emailAppointmentReminder(input: {
-  to: string;
-  clientName: string;
-  serviceTitle: string;
-  whenLabel: string;
-}) {
+export async function emailAppointmentCancelled(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+  },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = renderAppointmentCancelled({ ...input, studio });
   return sendEmail({
+    db: input.db,
     to: input.to,
-    subject: `Reminder: ${input.serviceTitle} tomorrow`,
-    html: wrap(`
-      <h1 style="font-size:22px">Appointment reminder</h1>
-      <p>Hi ${input.clientName},</p>
-      <p>This is a reminder for <strong>${input.serviceTitle}</strong> on ${input.whenLabel}.</p>
-      <p>Please arrive on time and review your pre-care guidance.</p>
-    `),
+    toName: input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "appointment_cancelled",
+    appointmentId: input.appointmentId,
   });
 }
+
+export async function emailAppointmentReminder(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+  },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = renderAppointmentReminder({ ...input, studio });
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    toName: input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "appointment_reminder",
+    appointmentId: input.appointmentId,
+  });
+}
+
+export async function emailInquiryReceived(
+  input: InquiryEmailVars & { inquiryId?: string | null; db?: Database | null },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = renderInquiryReceived({ ...input, studio });
+  return sendEmail({
+    db: input.db,
+    to: input.email,
+    toName: input.name,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "inquiry_received",
+    inquiryId: input.inquiryId,
+  });
+}
+
+export async function emailInquiryAlert(
+  input: InquiryEmailVars & { inquiryId?: string | null; db?: Database | null },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = renderInquiryAlert({ ...input, studio });
+  const managers = input.db ? await studioManagerEmails(input.db) : [];
+  const recipients = managers.map((m) => m.email);
+  if (!recipients.length) recipients.push(studio.email);
+
+  const results = [];
+  for (const to of recipients) {
+    results.push(
+      await sendEmail({
+        db: input.db,
+        to,
+        subject: rendered.subject,
+        html: rendered.html,
+        templateKey: "inquiry_alert",
+        inquiryId: input.inquiryId,
+        replyTo: input.email,
+        metadata: { clientEmail: input.email },
+      }),
+    );
+  }
+  return results;
+}
+
+export async function emailTestMessage(input: {
+  to: string;
+  db?: Database | null;
+}) {
+  const studio = await loadStudioEmailContext(input.db);
+  const rendered = renderTestEmail(studio);
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "test_email",
+  });
+}
+
+/** @deprecated import path kept for older callers — prefer transactional helpers above */
+export { sendEmail } from "@/lib/email/send";

@@ -40,9 +40,9 @@ async function run(req: Request) {
     },
     include: {
       service: { select: { title: true } },
-      category: { select: { title: true } },
+      category: { select: { title: true, slug: true } },
       lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
-      staff: { select: { id: true } },
+      staff: { select: { id: true, name: true } },
     },
     take: 100,
   });
@@ -57,10 +57,14 @@ async function run(req: Request) {
     const serviceTitle = appointmentDisplayTitle(row);
 
     await emailAppointmentReminder({
+      db,
+      appointmentId: row.id,
       to: row.clientEmail,
       clientName: row.clientName,
       serviceTitle,
       whenLabel,
+      staffName: row.staff?.name,
+      categorySlug: row.category.slug,
     });
 
     await notifyAdmins(db, {

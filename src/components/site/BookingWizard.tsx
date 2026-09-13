@@ -75,6 +75,7 @@ export function BookingWizard({
   const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string[]>>({});
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
+  const [expandedVariantServiceIds, setExpandedVariantServiceIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -436,6 +437,12 @@ export function BookingWizard({
     setExpandedCategoryIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
+  function toggleVariantService(id: string) {
+    setExpandedVariantServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
+
   function toggleService(id: string) {
     setSelectedServiceIds((prev) => {
       const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
@@ -659,52 +666,78 @@ export function BookingWizard({
                         const active = selectedServiceIds.includes(s.id);
                         const chosenVariants = selectedVariantIds[s.id] || [];
                         if (hasVariants) {
+                          const variantsOpen = expandedVariantServiceIds.includes(s.id);
                           return (
                             <div
                               key={s.id}
-                              className={`rounded-2xl border px-5 py-4 ${
+                              className={`rounded-2xl border ${
                                 active ? "border-black bg-black text-white" : "border-black/15"
                               }`}
                             >
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
+                              <button
+                                type="button"
+                                aria-expanded={variantsOpen}
+                                onClick={() => toggleVariantService(s.id)}
+                                className={`flex w-full items-start justify-between gap-3 px-5 py-4 text-left transition ${
+                                  active ? "hover:bg-white/5" : "hover:bg-black/[0.03]"
+                                }`}
+                              >
+                                <div className="min-w-0">
                                   <p className="font-semibold tracking-wide">{s.title}</p>
                                   <p className={`mt-1 text-sm ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                                    Choose one or more · {s.priceLabel}
+                                    {chosenVariants.length
+                                      ? `${chosenVariants.length} option${chosenVariants.length === 1 ? "" : "s"} selected · ${s.priceLabel}`
+                                      : `Tap to choose options · ${s.priceLabel}`}
                                   </p>
                                 </div>
-                                <span
-                                  className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}
-                                >
-                                  {chosenVariants.length ? `${chosenVariants.length} selected` : "Options"}
+                                <span className="flex shrink-0 items-center gap-2">
+                                  <span
+                                    className={`text-xs uppercase tracking-[0.14em] ${active ? "text-white/80" : "text-black/40"}`}
+                                  >
+                                    {chosenVariants.length ? `${chosenVariants.length} selected` : "Options"}
+                                  </span>
+                                  <span
+                                    className={`text-lg transition-transform duration-200 ${
+                                      active ? "text-white/60" : "text-black/40"
+                                    } ${variantsOpen ? "rotate-180" : ""}`}
+                                    aria-hidden
+                                  >
+                                    ▾
+                                  </span>
                                 </span>
-                              </div>
-                              <div className="mt-3 grid gap-2">
-                                {(s.variants || []).map((v) => {
-                                  const on = chosenVariants.includes(v.id);
-                                  return (
-                                    <button
-                                      key={v.id}
-                                      type="button"
-                                      onClick={() => toggleVariant(s.id, v.id)}
-                                      className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
-                                        on
-                                          ? active
-                                            ? "border-white/40 bg-white/10"
-                                            : "border-black bg-black text-white"
-                                          : active
-                                            ? "border-white/20 hover:border-white/40"
-                                            : "border-black/10 hover:border-black/30"
-                                      }`}
-                                    >
-                                      <span className="font-medium">{v.title}</span>
-                                      <span className={`mt-0.5 block text-xs ${on || active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                                        {v.durationMinutes} min · {v.priceLabel}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                              </button>
+                              {variantsOpen ? (
+                                <div className="grid gap-2 border-t border-black/10 px-4 pb-4 pt-3 sm:px-5">
+                                  {(s.variants || []).map((v) => {
+                                    const on = chosenVariants.includes(v.id);
+                                    return (
+                                      <button
+                                        key={v.id}
+                                        type="button"
+                                        onClick={() => toggleVariant(s.id, v.id)}
+                                        className={`rounded-xl border px-4 py-3 text-left text-sm transition ${
+                                          on
+                                            ? active
+                                              ? "border-white/40 bg-white/10"
+                                              : "border-black bg-black text-white"
+                                            : active
+                                              ? "border-white/20 hover:border-white/40"
+                                              : "border-black/10 hover:border-black/30"
+                                        }`}
+                                      >
+                                        <span className="font-medium">{v.title}</span>
+                                        <span
+                                          className={`mt-0.5 block text-xs ${
+                                            on || active ? "text-white/70" : "text-[var(--ink-soft)]"
+                                          }`}
+                                        >
+                                          {v.durationMinutes} min · {v.priceLabel}
+                                        </span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         }

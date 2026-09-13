@@ -12,16 +12,10 @@ import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
 import { staffForAllServices, normalizeBookingItems, resolveBookingItems } from "@/lib/booking/service";
 import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
 import type { Database } from "@/lib/db";
-import { emailAppointmentCancelled } from "@/lib/email/resend";
-import { notifyAdmins } from "@/lib/notifications";
-
-function whenLabel(startsAt: Date, timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    dateStyle: "full",
-    timeStyle: "short",
-  }).format(startsAt);
-}
+import {
+  announceAppointmentBooked,
+  announceAppointmentCancelled,
+} from "@/lib/booking/announce";
 
 async function assertStaffForServices(db: Database, serviceIds: string[], staffId: string | null) {
   const assigned = await staffForAllServices(db, serviceIds);
@@ -317,23 +311,11 @@ export async function PATCH(req: Request) {
   });
 
   if (parsed.data.status === "cancelled" && existing.status !== "cancelled") {
-    const settings = await gate.db.siteSettings.findUnique({ where: { id: 1 } });
-    const tz = settings?.timezone || "America/Toronto";
-    const label = whenLabel(updated.startsAt, tz);
-    const title = appointmentDisplayTitle(updated);
-    await emailAppointmentCancelled({
-      to: updated.clientEmail,
-      clientName: updated.clientName,
-      serviceTitle: title,
-      whenLabel: label,
-    });
-    await notifyAdmins(gate.db, {
-      type: "appointment_cancelled",
-      title: "Appointment cancelled",
-      body: `${updated.clientName} · ${title} · ${label}`,
-      includeStaffId: updated.staffId,
-      metadata: { appointmentId: updated.id },
-    });
+    await announceAppointmentCancelled(gate.db, updated.id);
+  }
+
+  if (parsed.data.status === "confirmed" && existing.status !== "confirmed") {
+    await announceAppointmentBooked(gate.db, updated.id);
   }
 
   return NextResponse.json({ ok: true });
@@ -491,6 +473,12 @@ export async function POST(req: Request) {
       { error: "No appointments created — all times conflicted", skipped },
       { status: 409 },
     );
+  }
+
+  if (status === "confirmed") {
+    for (const id of created) {
+      await announceAppointmentBooked(gate.db, id);
+    }
   }
 
   return NextResponse.json({

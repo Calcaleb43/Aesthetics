@@ -394,3 +394,26 @@ model Testimonial {
   @@index([status, sortOrder])
   @@map("testimonials")
 }
+
+model EmailMessage {
+  id            String   @id @default(uuid()) @db.Uuid
+  templateKey   String   @map("template_key") @db.VarChar(64)
+  toEmail       String   @map("to_email") @db.VarChar(255)
+  toName        String?  @map("to_name") @db.VarChar(160)
+  subject       String   @db.VarChar(255)
+  status        String   @db.VarChar(20)
+  providerId    String?  @map("provider_id") @db.VarChar(255)
+  error         String?
+  appointmentId String?  @map("appointment_id") @db.Uuid
+  inquiryId     String?  @map("inquiry_id") @db.Uuid
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@index([templateKey, createdAt])
+  @@index([toEmail])
+  @@index([status])
+  @@index([appointmentId])
+  @@index([inquiryId])
+  @@map("email_messages")
+}

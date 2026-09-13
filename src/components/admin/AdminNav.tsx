@@ -10,6 +10,7 @@ import {
   HelpCircle,
   ImageIcon,
   LayoutDashboard,
+  Mail,
   Menu,
   MessageSquare,
   Settings,
@@ -68,6 +69,7 @@ const groups: NavGroup[] = [
     label: "Studio",
     links: [
       { href: "/admin/team", label: "Team", icon: Users },
+      { href: "/admin/email", label: "Email", icon: Mail },
       { href: "/admin/settings", label: "Settings", icon: Settings },
     ],
   },
