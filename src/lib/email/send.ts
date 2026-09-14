@@ -36,6 +36,7 @@ export async function loadStudioEmailContext(db?: Database | null): Promise<Stud
       address: row.address || DEFAULT_STUDIO.address,
       instagramUrl: row.instagramUrl || DEFAULT_STUDIO.instagramUrl,
       bookingUrl: row.bookingUrl || undefined,
+      googleReviewsUrl: row.googleReviewsUrl || undefined,
     };
   } catch {
     return DEFAULT_STUDIO;

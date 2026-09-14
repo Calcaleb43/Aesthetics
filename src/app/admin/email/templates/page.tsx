@@ -1,6 +1,6 @@
 import { AdminShell } from "@/components/admin/AdminShell";
 import { CollectionWorkspace } from "@/components/admin/CollectionWorkspace";
-import { CUSTOM_TEMPLATE_VAR_HELP } from "@/lib/email/custom";
+import { CUSTOM_TEMPLATE_VAR_HELP, ensureDefaultEmailTemplates } from "@/lib/email/custom";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { DEFAULT_CUSTOM_TEMPLATES } from "@/lib/email/custom";
 
@@ -9,22 +9,10 @@ async function getTemplates() {
     return DEFAULT_CUSTOM_TEMPLATES.map((t) => ({ ...t }));
   }
   const db = getPrisma();
-  let rows = await db.emailTemplate.findMany({
+  await ensureDefaultEmailTemplates(db);
+  return db.emailTemplate.findMany({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-  if (!rows.length) {
-    for (const tpl of DEFAULT_CUSTOM_TEMPLATES) {
-      await db.emailTemplate.upsert({
-        where: { slug: tpl.slug },
-        create: { ...tpl },
-        update: {},
-      });
-    }
-    rows = await db.emailTemplate.findMany({
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    });
-  }
-  return rows;
 }
 
 export default async function AdminEmailTemplatesPage({
@@ -39,7 +27,7 @@ export default async function AdminEmailTemplatesPage({
   return (
     <AdminShell
       title="Email templates"
-      description={`Custom compose/bulk templates. Variables: ${varHint}`}
+      description={`Edit compose/bulk templates and automated reminder / thank-you copy. Keep status Published for auto emails to use your tweaks. Variables: ${varHint}`}
     >
       <CollectionWorkspace
         items={templates.map((t) => ({

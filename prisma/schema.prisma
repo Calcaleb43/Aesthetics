@@ -292,6 +292,7 @@ model Appointment {
   notes                  String               @default("")
   policyAcceptedAt       DateTime?            @map("policy_accepted_at") @db.Timestamptz(6)
   reminderSentAt         DateTime?            @map("reminder_sent_at") @db.Timestamptz(6)
+  thankYouSentAt         DateTime?            @map("thank_you_sent_at") @db.Timestamptz(6)
   createdAt              DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   lines                  AppointmentService[]

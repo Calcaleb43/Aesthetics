@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { addHours } from "date-fns";
+import { addHours, subHours } from "date-fns";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
-import { emailAppointmentReminder } from "@/lib/email/resend";
+import { emailAppointmentReminder, emailAppointmentThankYou } from "@/lib/email/resend";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { notifyAdmins } from "@/lib/notifications";
 
@@ -29,26 +29,42 @@ async function run(req: Request) {
   const settings = await db.siteSettings.findUnique({ where: { id: 1 } });
   const tz = settings?.timezone || "America/Toronto";
   const now = new Date();
-  const windowStart = addHours(now, 20);
-  const windowEnd = addHours(now, 28);
 
-  const rows = await db.appointment.findMany({
-    where: {
-      status: "confirmed",
-      reminderSentAt: null,
-      startsAt: { gte: windowStart, lte: windowEnd },
-    },
-    include: {
-      service: { select: { title: true } },
-      category: { select: { title: true, slug: true } },
-      lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
-      staff: { select: { id: true, name: true } },
-    },
-    take: 100,
-  });
+  const reminderWindowStart = addHours(now, 20);
+  const reminderWindowEnd = addHours(now, 28);
+  const thankYouWindowStart = subHours(now, 28);
+  const thankYouWindowEnd = subHours(now, 20);
 
-  let sent = 0;
-  for (const row of rows) {
+  const include = {
+    service: { select: { title: true } },
+    category: { select: { title: true, slug: true } },
+    lines: { orderBy: { sortOrder: "asc" as const }, select: { title: true } },
+    staff: { select: { id: true, name: true } },
+  };
+
+  const [reminders, thankYous] = await Promise.all([
+    db.appointment.findMany({
+      where: {
+        status: "confirmed",
+        reminderSentAt: null,
+        startsAt: { gte: reminderWindowStart, lte: reminderWindowEnd },
+      },
+      include,
+      take: 100,
+    }),
+    db.appointment.findMany({
+      where: {
+        status: { in: ["confirmed", "completed"] },
+        thankYouSentAt: null,
+        endsAt: { gte: thankYouWindowStart, lte: thankYouWindowEnd },
+      },
+      include,
+      take: 100,
+    }),
+  ]);
+
+  let remindersSent = 0;
+  for (const row of reminders) {
     const whenLabel = new Intl.DateTimeFormat("en-CA", {
       timeZone: tz,
       dateStyle: "full",
@@ -79,8 +95,40 @@ async function run(req: Request) {
       where: { id: row.id },
       data: { reminderSentAt: new Date() },
     });
-    sent += 1;
+    remindersSent += 1;
   }
 
-  return NextResponse.json({ ok: true, sent });
+  let thankYousSent = 0;
+  for (const row of thankYous) {
+    const whenLabel = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(row.startsAt);
+    const serviceTitle = appointmentDisplayTitle(row);
+
+    await emailAppointmentThankYou({
+      db,
+      appointmentId: row.id,
+      to: row.clientEmail,
+      clientName: row.clientName,
+      serviceTitle,
+      whenLabel,
+      staffName: row.staff?.name,
+      categorySlug: row.category.slug,
+    });
+
+    await db.appointment.update({
+      where: { id: row.id },
+      data: { thankYouSentAt: new Date() },
+    });
+    thankYousSent += 1;
+  }
+
+  return NextResponse.json({
+    ok: true,
+    remindersSent,
+    thankYousSent,
+    sent: remindersSent + thankYousSent,
+  });
 }

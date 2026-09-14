@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
-import { DEFAULT_CUSTOM_TEMPLATES } from "@/lib/email/custom";
+import { ensureDefaultEmailTemplates } from "@/lib/email/custom";
 
 const schema = z.object({
   slug: z.string().min(1).max(120),
@@ -18,22 +18,11 @@ export async function GET() {
   const gate = await requireAdminApi({ permission: "cms" });
   if ("error" in gate) return gate.error;
 
-  let rows = await gate.db.emailTemplate.findMany({
+  await ensureDefaultEmailTemplates(gate.db);
+
+  const rows = await gate.db.emailTemplate.findMany({
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
   });
-
-  if (!rows.length) {
-    for (const tpl of DEFAULT_CUSTOM_TEMPLATES) {
-      await gate.db.emailTemplate.upsert({
-        where: { slug: tpl.slug },
-        create: { ...tpl },
-        update: {},
-      });
-    }
-    rows = await gate.db.emailTemplate.findMany({
-      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    });
-  }
 
   return NextResponse.json({
     templates: rows.map((t) => ({

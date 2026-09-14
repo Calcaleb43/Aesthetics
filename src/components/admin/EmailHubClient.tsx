@@ -310,7 +310,7 @@ export function EmailHubClient() {
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <Link href="/admin/email/templates" className="admin-btn-secondary">
-              Edit custom templates
+              Edit templates
             </Link>
             <form onSubmit={onTest} className="flex flex-wrap items-end gap-2">
               <label className="grid gap-1 text-xs text-white/60">
@@ -593,8 +593,12 @@ export function EmailHubClient() {
               href="/admin/email/templates"
               className="mt-4 inline-block text-xs uppercase tracking-[0.14em] text-[#c6a75e] hover:underline"
             >
-              Manage custom templates →
+              Edit reminder & thank-you copy →
             </Link>
+            <p className="mt-3 text-[0.7rem] leading-5 text-white/40">
+              Booking / cancel / inquiry layouts are fixed. Reminder and thank-you subject &amp; intro are
+              editable under Email templates (keep Published).
+            </p>
           </div>
 
           <div className="admin-card overflow-hidden">

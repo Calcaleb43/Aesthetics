@@ -1,16 +1,44 @@
 import type { Database } from "@/lib/db";
+import { siteUrl } from "@/lib/booking/stripe";
+import { loadTemplateCopyOverride } from "@/lib/email/overrides";
 import { loadStudioEmailContext, sendEmail, studioManagerEmails } from "@/lib/email/send";
 import {
   renderAppointmentBooked,
   renderAppointmentBookedStaff,
   renderAppointmentCancelled,
   renderAppointmentReminder,
+  renderAppointmentThankYou,
   renderInquiryAlert,
   renderInquiryReceived,
   renderTestEmail,
   type AppointmentEmailVars,
   type InquiryEmailVars,
 } from "@/lib/email/templates";
+
+async function withAppointmentCopy(
+  db: Database | null | undefined,
+  slug: string,
+  input: AppointmentEmailVars,
+) {
+  const studio = input.studio || (await loadStudioEmailContext(db));
+  const base = siteUrl();
+  const copyOverride = await loadTemplateCopyOverride(db, slug, {
+    name: input.clientName,
+    email: input.clientEmail || "",
+    phone: input.clientPhone || "",
+    siteName: studio.siteName,
+    studioEmail: studio.email,
+    studioPhone: studio.phone,
+    address: studio.address,
+    bookingUrl: studio.bookingUrl || `${base}/book-now`,
+    siteUrl: base,
+    reviewsUrl: studio.googleReviewsUrl || "",
+    serviceTitle: input.serviceTitle,
+    whenLabel: input.whenLabel,
+    staffName: input.staffName || "",
+  });
+  return { ...input, studio, copyOverride };
+}
 
 export async function emailAppointmentBooked(
   input: AppointmentEmailVars & {
@@ -62,8 +90,8 @@ export async function emailAppointmentReminder(
     db?: Database | null;
   },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const rendered = renderAppointmentReminder({ ...input, studio });
+  const vars = await withAppointmentCopy(input.db, "appointment_reminder", input);
+  const rendered = renderAppointmentReminder(vars);
   return sendEmail({
     db: input.db,
     to: input.to,
@@ -71,6 +99,26 @@ export async function emailAppointmentReminder(
     subject: rendered.subject,
     html: rendered.html,
     templateKey: "appointment_reminder",
+    appointmentId: input.appointmentId,
+  });
+}
+
+export async function emailAppointmentThankYou(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+  },
+) {
+  const vars = await withAppointmentCopy(input.db, "appointment_thank_you", input);
+  const rendered = renderAppointmentThankYou(vars);
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    toName: input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "appointment_thank_you",
     appointmentId: input.appointmentId,
   });
 }

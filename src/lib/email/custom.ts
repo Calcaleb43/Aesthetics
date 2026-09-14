@@ -1,3 +1,4 @@
+import type { Database } from "@/lib/db";
 import {
   DEFAULT_STUDIO,
   escapeHtml,
@@ -18,6 +19,10 @@ export const CUSTOM_TEMPLATE_VAR_HELP = [
   { key: "address", label: "Studio address" },
   { key: "bookingUrl", label: "Booking URL" },
   { key: "siteUrl", label: "Website URL" },
+  { key: "reviewsUrl", label: "Google reviews URL" },
+  { key: "serviceTitle", label: "Service title (auto emails)" },
+  { key: "whenLabel", label: "Appointment time (auto emails)" },
+  { key: "staffName", label: "Staff name (auto emails)" },
 ] as const;
 
 export function buildRecipientVars(input: {
@@ -37,6 +42,7 @@ export function buildRecipientVars(input: {
     address: input.studio.address,
     bookingUrl: input.studio.bookingUrl || `${base}/book-now`,
     siteUrl: base,
+    reviewsUrl: input.studio.googleReviewsUrl || "",
   };
 }
 
@@ -135,4 +141,41 @@ Reply anytime if you have questions — {{studioEmail}} · {{studioPhone}}.`,
     status: "published",
     sortOrder: 3,
   },
+  {
+    slug: "appointment_reminder",
+    name: "Appointment reminder (auto)",
+    description:
+      "Automated ~24h before the visit. Edit subject/body to tweak the message. Appointment details and buttons stay fixed.",
+    subject: "Reminder — {{serviceTitle}} tomorrow",
+    body: `Hi {{name}},
+
+This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.`,
+    status: "published",
+    sortOrder: 10,
+  },
+  {
+    slug: "appointment_thank_you",
+    name: "Thank you / review (auto)",
+    description:
+      "Automated ~24h after the visit. Includes Google review + rebook buttons when Settings → Reviews has a Google URL.",
+    subject: "Thank you — {{siteName}}",
+    body: `Hi {{name}},
+
+Thank you for visiting {{siteName}}. We hope you loved your experience.
+
+If you have a moment, a Google review helps others find us — and we'd love to see you again whenever you're ready.`,
+    status: "published",
+    sortOrder: 11,
+  },
 ] as const;
+
+/** Ensure default templates exist (does not overwrite admin edits). */
+export async function ensureDefaultEmailTemplates(db: Database) {
+  for (const tpl of DEFAULT_CUSTOM_TEMPLATES) {
+    await db.emailTemplate.upsert({
+      where: { slug: tpl.slug },
+      create: { ...tpl },
+      update: {},
+    });
+  }
+}

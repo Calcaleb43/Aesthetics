@@ -13,6 +13,7 @@ export const EMAIL_TEMPLATE_KEYS = [
   "appointment_booked_staff",
   "appointment_cancelled",
   "appointment_reminder",
+  "appointment_thank_you",
   "inquiry_received",
   "inquiry_alert",
   "test_email",
@@ -47,7 +48,12 @@ export const EMAIL_TEMPLATE_META: Record<
   },
   appointment_reminder: {
     label: "Appointment reminder",
-    description: "Sent ~24 hours before the appointment.",
+    description: "Sent ~24 hours before the appointment. Copy editable in Email → templates.",
+    audience: "client",
+  },
+  appointment_thank_you: {
+    label: "Thank you / review",
+    description: "Sent ~24 hours after the appointment with review + rebook links. Copy editable in Email → templates.",
     audience: "client",
   },
   inquiry_received: {
@@ -79,6 +85,8 @@ export type AppointmentEmailVars = {
   amountChargedCents?: number;
   categorySlug?: string | null;
   notes?: string | null;
+  /** Optional CMS override for subject / intro (from Email templates). */
+  copyOverride?: { subject?: string; introHtml?: string } | null;
 };
 
 export type InquiryEmailVars = {
@@ -180,15 +188,16 @@ export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedE
   const studio = studioOf(vars);
   const base = siteUrl();
   const careHref = vars.categorySlug ? `${base}/care/${vars.categorySlug}` : `${base}/care`;
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.</p>`;
   return {
-    subject: `Reminder — ${vars.serviceTitle} tomorrow`,
+    subject: vars.copyOverride?.subject || `Reminder — ${vars.serviceTitle} tomorrow`,
     preheader: `${vars.serviceTitle} on ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Reminder",
       title: "See you soon",
-      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
@@ -199,6 +208,37 @@ export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedE
         emailButton("Pre-care guide", careHref),
         emailButton("Policies", `${base}/policies`, "ghost"),
       ].join(""),
+    }),
+  };
+}
+
+export function renderAppointmentThankYou(vars: AppointmentEmailVars): RenderedEmail {
+  const studio = studioOf(vars);
+  const base = siteUrl();
+  const rebookHref = `${base}/book-now`;
+  const reviewUrl = (studio.googleReviewsUrl || "").trim();
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0 0 12px;">Thank you for visiting ${escapeHtml(studio.siteName)}. We hope you loved your experience.</p>
+        <p style="margin:0;">If you have a moment, a Google review helps others find us — and we'd love to see you again whenever you're ready.</p>`;
+  const ctas = [
+    ...(reviewUrl ? [emailButton("Leave a Google review", reviewUrl)] : []),
+    emailButton("Book again", rebookHref, reviewUrl ? "ghost" : "gold"),
+  ];
+  return {
+    subject: vars.copyOverride?.subject || `Thank you — ${studio.siteName}`,
+    preheader: reviewUrl
+      ? "Thanks for visiting — leave a review or book again anytime"
+      : "Thanks for visiting — book again anytime",
+    html: renderEmailLayout({
+      studio,
+      eyebrow: "Thank you",
+      title: "Grateful you chose us",
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
+      detailRows: [
+        { label: "Service", value: vars.serviceTitle },
+        { label: "Visit", value: vars.whenLabel },
+      ],
+      ctaHtml: ctas.join(""),
     }),
   };
 }
@@ -281,6 +321,8 @@ export function renderEmailTemplate(
       return renderAppointmentCancelled(vars as AppointmentEmailVars);
     case "appointment_reminder":
       return renderAppointmentReminder(vars as AppointmentEmailVars);
+    case "appointment_thank_you":
+      return renderAppointmentThankYou(vars as AppointmentEmailVars);
     case "inquiry_received":
       return renderInquiryReceived(vars as InquiryEmailVars);
     case "inquiry_alert":

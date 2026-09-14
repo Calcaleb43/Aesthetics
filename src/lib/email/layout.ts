@@ -7,6 +7,7 @@ export type StudioEmailContext = {
   address: string;
   instagramUrl?: string;
   bookingUrl?: string;
+  googleReviewsUrl?: string;
 };
 
 export const DEFAULT_STUDIO: StudioEmailContext = {
