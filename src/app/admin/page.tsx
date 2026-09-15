@@ -244,7 +244,8 @@ export default async function AdminDashboardPage() {
         <h2 className="text-xl text-white">Quick links</h2>
         <div className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 text-sm">
           {[
-            { href: "/admin/appointments", label: "Appointments & blocked times" },
+            { href: "/admin/appointments", label: "Appointments calendar" },
+            { href: "/admin/availability", label: "Availability & hours" },
             { href: "/admin/clients", label: "Client list" },
             { href: "/admin/inquiries", label: "Inquiry inbox" },
             { href: "/admin/settings", label: "Homepage & branding" },

@@ -37,12 +37,32 @@ const bookingFields: EditorSection["fields"] = [
     label: "Weekly hours (JSON)",
     type: "json",
     rows: 10,
-    hint: 'Keys: mon–sun. Example: {"mon":[{"start":"10:00","end":"18:00"}]}',
+    hint: 'Prefer Admin → Availability for visual editing. Keys: mon–sun. Example: {"mon":[{"start":"10:00","end":"18:00"}]}',
   },
-  { name: "slotIntervalMinutes", label: "Slot interval (minutes)", type: "number" },
-  { name: "bufferMinutes", label: "Buffer between appointments (minutes)", type: "number" },
-  { name: "minLeadHours", label: "Minimum lead time (hours)", type: "number" },
-  { name: "maxAdvanceDays", label: "Max days ahead to book", type: "number" },
+  {
+    name: "slotIntervalMinutes",
+    label: "Slot interval (minutes)",
+    type: "number",
+    hint: "Also editable under Admin → Availability → Booking rules",
+  },
+  {
+    name: "bufferMinutes",
+    label: "Buffer between appointments (minutes)",
+    type: "number",
+    hint: "Also editable under Admin → Availability → Booking rules",
+  },
+  {
+    name: "minLeadHours",
+    label: "Minimum lead time (hours)",
+    type: "number",
+    hint: "Also editable under Admin → Availability → Booking rules",
+  },
+  {
+    name: "maxAdvanceDays",
+    label: "Max days ahead to book",
+    type: "number",
+    hint: "Also editable under Admin → Availability → Booking rules",
+  },
   { name: "hstRateBps", label: "HST rate (basis points)", type: "number", hint: "1300 = 13%" },
 ];
 

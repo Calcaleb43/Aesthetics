@@ -47,7 +47,9 @@ export function navVisible(role: AdminRole, href: string) {
   if (href === "/admin" || href.startsWith("/admin?")) return true;
   if (href.startsWith("/admin/team")) return canManageTeam(role);
   if (href.startsWith("/admin/clients")) return canManageClients(role);
-  if (href.startsWith("/admin/appointments")) return canViewCalendar(role);
+  if (href.startsWith("/admin/appointments") || href.startsWith("/admin/availability")) {
+    return canViewCalendar(role);
+  }
   if (href.startsWith("/admin/inquiries")) return canViewInquiries(role);
   if (role === "staff" || role === "viewer") return false;
   if (

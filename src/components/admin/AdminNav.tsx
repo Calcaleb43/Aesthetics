@@ -22,6 +22,7 @@ import {
   UserRound,
   X,
   PlusCircle,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -48,6 +49,7 @@ const groups: NavGroup[] = [
     links: [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
       { href: "/admin/appointments", label: "Appointments", icon: CalendarDays },
+      { href: "/admin/availability", label: "Availability", icon: Clock },
       { href: "/admin/clients", label: "Clients", icon: UserRound },
       { href: "/admin/inquiries", label: "Inquiries", icon: MessageSquare },
     ],
