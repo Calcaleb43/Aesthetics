@@ -14,17 +14,17 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
     <div className="site-shell" style={{ fontFamily: "var(--font-figtree), var(--font-body)" }}>
       <JsonLd data={localBusinessJsonLd(settings)} />
       <MotionProvider>
-        <PromoBanner
-          enabled={settings.promoBannerEnabled}
-          text={settings.promoBannerText}
-          href={settings.promoBannerHref}
-        />
         <SiteHeader
           siteName={settings.siteName}
           bookingUrl={bookingHref}
           bookingExternal={!settings.bookingEnabled}
           instagramUrl={settings.instagramUrl}
           services={services.map((s) => ({ slug: s.slug, title: s.title }))}
+        />
+        <PromoBanner
+          enabled={settings.promoBannerEnabled}
+          text={settings.promoBannerText}
+          href={settings.promoBannerHref}
         />
         <main>{children}</main>
         <SiteFooter settings={settings} />
