@@ -66,7 +66,14 @@ type Appointment = {
 
 type ViewMode = "month" | "week" | "day" | "list";
 
-const STATUS_OPTIONS = ["all", "confirmed", "pending_payment", "completed", "cancelled", "no_show"] as const;
+const STATUS_OPTIONS = [
+  { id: "confirmed", label: "Confirmed (paid)" },
+  { id: "pending_payment", label: "Unpaid holds" },
+  { id: "completed", label: "Completed" },
+  { id: "cancelled", label: "Cancelled" },
+  { id: "no_show", label: "No-show" },
+  { id: "all", label: "All (excl. expired)" },
+] as const;
 
 const STATUS_ACTIONS: { status: string; label: string }[] = [
   { status: "completed", label: "Complete" },
@@ -133,7 +140,7 @@ export function AdminCalendar({
   const [canManageAll, setCanManageAll] = useState(false);
   const [staffFilter, setStaffFilter] = useState("");
   const [serviceFilter, setServiceFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("confirmed");
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -621,8 +628,8 @@ export function AdminCalendar({
             onChange={(e) => setStatusFilter(e.target.value)}
           >
             {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s.replace("_", " ")}
+              <option key={s.id} value={s.id}>
+                {s.label}
               </option>
             ))}
           </select>
@@ -678,17 +685,25 @@ export function AdminCalendar({
                         Blocked{b.reason ? ` · ${b.reason}` : ""}
                       </div>
                     ))}
-                    {dayAppts.slice(0, apptSlots).map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className="block w-full truncate rounded px-1 py-0.5 text-left text-[0.62rem] text-[#0f0f0f]"
-                        style={{ background: a.staffColor || "#c6a75e" }}
-                        onClick={() => openEdit(a)}
-                      >
-                        {formatTime(a.startsAt, timezone)} {a.clientName}
-                      </button>
-                    ))}
+                    {dayAppts.slice(0, apptSlots).map((a) => {
+                      const unpaid = a.status === "pending_payment";
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          className={`block w-full truncate rounded px-1 py-0.5 text-left text-[0.62rem] ${
+                            unpaid ? "border border-dashed border-white/40 text-white/80" : "text-[#0f0f0f]"
+                          }`}
+                          style={{
+                            background: unpaid ? "rgba(255,255,255,0.12)" : a.staffColor || "#c6a75e",
+                          }}
+                          onClick={() => openEdit(a)}
+                        >
+                          {formatTime(a.startsAt, timezone)} {unpaid ? "(unpaid) " : ""}
+                          {a.clientName}
+                        </button>
+                      );
+                    })}
                     {dayAppts.length + dayBlocks.length > 3 ? (
                       <p className="text-[0.6rem] text-white/40">
                         +{dayAppts.length + dayBlocks.length - 3} more
@@ -1265,21 +1280,28 @@ function TimelineGrid({
               })}
               {dayAppts.map((a) => {
                 const style = eventStyle(a.startsAt, a.endsAt, hourStart, dayMinutes);
+                const unpaid = a.status === "pending_payment";
                 return (
                   <button
                     key={a.id}
                     type="button"
-                    className="absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-1 text-left text-[0.65rem] leading-tight text-[#0f0f0f] shadow-sm transition hover:brightness-110"
+                    className={`absolute inset-x-1 z-10 overflow-hidden rounded-md px-1.5 py-1 text-left text-[0.65rem] leading-tight shadow-sm transition hover:brightness-110 ${
+                      unpaid ? "border border-dashed border-white/50 text-white/90" : "text-[#0f0f0f]"
+                    }`}
                     style={{
                       ...style,
-                      background: a.staffColor || "#c6a75e",
+                      background: unpaid ? "rgba(255,255,255,0.12)" : a.staffColor || "#c6a75e",
+                      opacity: unpaid ? 0.85 : 1,
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onEventClick(a);
                     }}
                   >
-                    <span className="font-semibold">{formatTime(a.startsAt, timezone)}</span>
+                    <span className="font-semibold">
+                      {formatTime(a.startsAt, timezone)}
+                      {unpaid ? " · unpaid" : ""}
+                    </span>
                     <span className="block truncate">{a.clientName}</span>
                     <span className="block truncate opacity-80">{a.serviceTitle}</span>
                   </button>

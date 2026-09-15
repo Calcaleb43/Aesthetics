@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { addMinutes } from "date-fns";
+import { addMinutes, subMinutes } from "date-fns";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { requireAdminApi } from "@/lib/auth/admin-api";
 import { canManageAllAppointments, canWriteAppointments } from "@/lib/auth/roles";
 import { upsertClient } from "@/lib/booking/clients";
-import { activeHoldStatuses } from "@/lib/booking/availability";
+import { PENDING_HOLD_MINUTES, activeHoldStatuses } from "@/lib/booking/availability";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
 import { asWeeklyHours, formatCad } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
@@ -46,6 +46,15 @@ export async function GET(req: Request) {
   const gate = await requireAdminApi({ permission: "calendar" });
   if ("error" in gate) return gate.error;
 
+  // Drop unpaid checkout holds older than the public booking window
+  await gate.db.appointment.updateMany({
+    where: {
+      status: "pending_payment",
+      createdAt: { lt: subMinutes(new Date(), PENDING_HOLD_MINUTES) },
+    },
+    data: { status: "expired" },
+  });
+
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
   const from = url.searchParams.get("from");
@@ -54,7 +63,12 @@ export async function GET(req: Request) {
   const serviceId = url.searchParams.get("serviceId");
 
   const where: Record<string, unknown> = {};
-  if (status && status !== "all") where.status = status;
+  if (status && status !== "all") {
+    where.status = status;
+  } else {
+    // "All" = real schedule + unpaid holds still within checkout window. Hide expired noise.
+    where.status = { notIn: ["expired"] };
+  }
   if (from || to) {
     where.startsAt = {
       ...(from ? { gte: new Date(from) } : {}),
