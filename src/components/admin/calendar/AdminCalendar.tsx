@@ -19,6 +19,7 @@ import {
 import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BlockedTimesPanel, type BlockedTimeItem } from "@/components/admin/calendar/BlockedTimesPanel";
+import { DayOverridesPanel } from "@/components/admin/calendar/DayOverridesPanel";
 import { dayKeyFromWeekday, type WeeklyHours } from "@/lib/booking/money";
 import {
   closedRangesForDay,
@@ -819,6 +820,7 @@ export function AdminCalendar({
         staff={staff}
         onChanged={(next) => setBlocks(next)}
       />
+      <DayOverridesPanel canWrite={canWrite} canManageAll={canManageAll} staff={staff} />
 
       {drawer ? (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={closeDrawer}>

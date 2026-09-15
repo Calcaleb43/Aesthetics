@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { announceAppointmentBooked } from "@/lib/booking/announce";
+import { upsertClient } from "@/lib/booking/clients";
 import { getStripe } from "@/lib/booking/stripe";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { notifyAdmins } from "@/lib/notifications";
@@ -35,7 +36,51 @@ export async function POST(req: Request) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
-    const appointmentId = session.metadata?.appointmentId;
+    const meta = session.metadata || {};
+
+    if (meta.type === "package" && meta.packageId) {
+      const existing = await db.clientPackage.findUnique({
+        where: { stripeSessionId: session.id },
+      });
+      if (!existing) {
+        const offer = await db.packageOffer.findUnique({ where: { id: meta.packageId } });
+        if (offer) {
+          const clientEmail = (meta.clientEmail || session.customer_email || "").trim().toLowerCase();
+          const clientName = (meta.clientName || "Client").trim() || "Client";
+          const clientPhone = (meta.clientPhone || "").trim() || null;
+          if (clientEmail) {
+            const client = await upsertClient(db, {
+              email: clientEmail,
+              name: clientName,
+              phone: clientPhone,
+            });
+            await db.clientPackage.create({
+              data: {
+                clientId: client.id,
+                packageId: offer.id,
+                sessionsTotal: offer.sessionCount,
+                sessionsRemaining: offer.sessionCount,
+                status: "active",
+                stripeSessionId: session.id,
+              },
+            });
+            await notifyAdmins(db, {
+              type: "package_purchased",
+              title: "Package purchased",
+              body: `${clientName} bought ${offer.title} (${offer.sessionCount} sessions).`,
+              href: "/admin/packages",
+              metadata: {
+                packageId: offer.id,
+                clientId: client.id,
+                stripeSessionId: session.id,
+              },
+            });
+          }
+        }
+      }
+    }
+
+    const appointmentId = meta.appointmentId;
     if (appointmentId) {
       const paymentIntent =
         typeof session.payment_intent === "string"

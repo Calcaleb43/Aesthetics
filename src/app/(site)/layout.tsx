@@ -1,5 +1,6 @@
 import { MotionProvider } from "@/components/site/MotionProvider";
 import { JsonLd } from "@/components/site/JsonLd";
+import { PromoBanner } from "@/components/site/PromoBanner";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { getPublishedServices, getSettings } from "@/lib/content/queries";
@@ -13,6 +14,11 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
     <div className="site-shell" style={{ fontFamily: "var(--font-figtree), var(--font-body)" }}>
       <JsonLd data={localBusinessJsonLd(settings)} />
       <MotionProvider>
+        <PromoBanner
+          enabled={settings.promoBannerEnabled}
+          text={settings.promoBannerText}
+          href={settings.promoBannerHref}
+        />
         <SiteHeader
           siteName={settings.siteName}
           bookingUrl={bookingHref}

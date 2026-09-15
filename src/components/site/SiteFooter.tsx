@@ -50,6 +50,9 @@ export function SiteFooter({ settings }: { settings: SiteSettings }) {
             <Link href="/services" className="transition hover:text-[var(--gold)]">
               Services
             </Link>
+            <Link href="/packages" className="transition hover:text-[var(--gold)]">
+              Packages
+            </Link>
             <Link href="/about" className="transition hover:text-[var(--gold)]">
               About
             </Link>

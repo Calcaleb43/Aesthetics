@@ -33,6 +33,9 @@ export type SiteSettings = {
   hstRateBps: number;
   bookingEnabled: boolean;
   paymentProvider: PaymentProvider;
+  promoBannerEnabled: boolean;
+  promoBannerText: string;
+  promoBannerHref: string;
 };
 
 export type PageRecord = {
@@ -179,6 +182,10 @@ export function getSeedSettings(): SiteSettings {
     bookingEnabled: (s as { bookingEnabled?: boolean }).bookingEnabled ?? true,
     paymentProvider:
       (s as { paymentProvider?: PaymentProvider }).paymentProvider === "none" ? "none" : "stripe",
+    promoBannerEnabled: (s as { promoBannerEnabled?: boolean }).promoBannerEnabled ?? true,
+    promoBannerText:
+      (s as { promoBannerText?: string }).promoBannerText || "Klarna Available at Checkout",
+    promoBannerHref: (s as { promoBannerHref?: string }).promoBannerHref || "",
   };
 }
 

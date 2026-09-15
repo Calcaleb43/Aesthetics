@@ -22,6 +22,7 @@ model Admin {
   appointments Appointment[]  @relation("AppointmentStaff")
   notifications Notification[]
   blockedTimes BlockedTime[]
+  dayOverrides DayOverride[]
 
   @@map("admins")
 }
@@ -69,6 +70,9 @@ model SiteSettings {
   bookingEnabled       Boolean  @default(true) @map("booking_enabled")
   /// Active online payment platform for booking checkout. Secrets stay in env.
   paymentProvider      String   @default("stripe") @map("payment_provider") @db.VarChar(32)
+  promoBannerEnabled   Boolean  @default(true) @map("promo_banner_enabled")
+  promoBannerText      String   @default("Klarna Available at Checkout") @map("promo_banner_text") @db.VarChar(255)
+  promoBannerHref      String   @default("") @map("promo_banner_href") @db.VarChar(500)
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("site_settings")
@@ -131,6 +135,7 @@ model Service {
   appointmentLines AppointmentService[]
   staff           StaffService[]
   variants        ServiceVariant[]
+  packageLinks    PackageService[]
 
   @@index([categoryId, sortOrder])
   @@map("services")
@@ -249,15 +254,16 @@ model Inquiry {
 }
 
 model Client {
-  id           String        @id @default(uuid()) @db.Uuid
-  email        String        @unique @db.VarChar(255)
-  name         String        @db.VarChar(160)
-  phone        String?       @db.VarChar(64)
-  notes        String        @default("")
-  banned       Boolean       @default(false)
-  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String         @id @default(uuid()) @db.Uuid
+  email        String         @unique @db.VarChar(255)
+  name         String         @db.VarChar(160)
+  phone        String?        @db.VarChar(64)
+  notes        String         @default("")
+  banned       Boolean        @default(false)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   appointments Appointment[]
+  packages     ClientPackage[]
 
   @@index([name])
   @@map("clients")
@@ -287,8 +293,13 @@ model Appointment {
   taxCents               Int                  @default(0) @map("tax_cents")
   amountChargedCents     Int                  @default(0) @map("amount_charged_cents")
   paymentMode            String               @map("payment_mode") @db.VarChar(20)
+  couponCode             String?              @map("coupon_code") @db.VarChar(64)
+  discountCents          Int                  @default(0) @map("discount_cents")
+  clientPackageId        String?              @map("client_package_id") @db.Uuid
+  clientPackage          ClientPackage?       @relation(fields: [clientPackageId], references: [id], onDelete: SetNull)
   stripeSessionId        String?              @unique @map("stripe_session_id") @db.VarChar(255)
   stripePaymentIntentId  String?              @map("stripe_payment_intent_id") @db.VarChar(255)
+  stripeCheckoutUrl      String?              @map("stripe_checkout_url")
   notes                  String               @default("")
   policyAcceptedAt       DateTime?            @map("policy_accepted_at") @db.Timestamptz(6)
   reminderSentAt         DateTime?            @map("reminder_sent_at") @db.Timestamptz(6)
@@ -305,6 +316,7 @@ model Appointment {
   @@index([seriesId])
   @@index([clientEmail])
   @@index([categoryId])
+  @@index([clientPackageId])
   @@map("appointments")
 }
 
@@ -321,6 +333,7 @@ model AppointmentService {
   priceCents      Int             @map("price_cents")
   depositCents    Int?            @map("deposit_cents")
   paymentMode     String          @map("payment_mode") @db.VarChar(20)
+  quantity        Int             @default(1)
   sortOrder       Int             @default(0) @map("sort_order")
   createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -341,6 +354,7 @@ model AppointmentAddon {
   priceCents      Int         @map("price_cents")
   depositCents    Int?        @map("deposit_cents")
   paymentMode     String      @map("payment_mode") @db.VarChar(20)
+  quantity        Int         @default(1)
   sortOrder       Int         @default(0) @map("sort_order")
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -437,4 +451,94 @@ model EmailTemplate {
 
   @@index([status, sortOrder])
   @@map("email_templates")
+}
+
+/// Per-calendar-day hours override (studio-wide or per-staff).
+model DayOverride {
+  id        String   @id @default(uuid()) @db.Uuid
+  /// Calendar date in studio timezone as YYYY-MM-DD
+  date      String   @db.VarChar(10)
+  staffId   String?  @map("staff_id") @db.Uuid
+  staff     Admin?   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  closed    Boolean  @default(false)
+  windows   Json     @default("[]")
+  note      String   @default("") @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([date, staffId])
+  @@index([date])
+  @@index([staffId])
+  @@map("day_overrides")
+}
+
+model Coupon {
+  id               String    @id @default(uuid()) @db.Uuid
+  code             String    @unique @db.VarChar(64)
+  name             String    @db.VarChar(160)
+  type             String    @db.VarChar(20)
+  /// For percent: basis points (2000 = 20%). For fixed: cents off.
+  amount           Int
+  active           Boolean   @default(true)
+  startsAt         DateTime? @map("starts_at") @db.Timestamptz(6)
+  endsAt           DateTime? @map("ends_at") @db.Timestamptz(6)
+  maxRedemptions   Int?      @map("max_redemptions")
+  redeemedCount    Int       @default(0) @map("redeemed_count")
+  minSubtotalCents Int?      @map("min_subtotal_cents")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([active])
+  @@map("coupons")
+}
+
+/// Sellable prepaid session package.
+model PackageOffer {
+  id              String           @id @default(uuid()) @db.Uuid
+  slug            String           @unique @db.VarChar(160)
+  title           String           @db.VarChar(200)
+  description     String           @default("")
+  priceCents      Int              @map("price_cents")
+  sessionCount    Int              @map("session_count")
+  active          Boolean          @default(true)
+  sortOrder       Int              @default(0) @map("sort_order")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  services        PackageService[]
+  clientPackages  ClientPackage[]
+
+  @@index([active, sortOrder])
+  @@map("package_offers")
+}
+
+model PackageService {
+  id        String       @id @default(uuid()) @db.Uuid
+  packageId String       @map("package_id") @db.Uuid
+  package   PackageOffer @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  serviceId String       @map("service_id") @db.Uuid
+  service   Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, serviceId])
+  @@index([serviceId])
+  @@map("package_services")
+}
+
+model ClientPackage {
+  id                 String        @id @default(uuid()) @db.Uuid
+  clientId           String        @map("client_id") @db.Uuid
+  client             Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  packageId          String        @map("package_id") @db.Uuid
+  package            PackageOffer  @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  sessionsTotal      Int           @map("sessions_total")
+  sessionsRemaining  Int           @map("sessions_remaining")
+  status             String        @default("active") @db.VarChar(20)
+  stripeSessionId    String?       @unique @map("stripe_session_id") @db.VarChar(255)
+  purchasedAt        DateTime      @default(now()) @map("purchased_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  appointments       Appointment[]
+
+  @@index([clientId, status])
+  @@index([packageId])
+  @@map("client_packages")
 }

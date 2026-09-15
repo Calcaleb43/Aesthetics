@@ -59,7 +59,7 @@ export async function emailAppointmentBooked(
     html: rendered.html,
     templateKey: input.isStaff ? "appointment_booked_staff" : "appointment_booked",
     appointmentId: input.appointmentId,
-    metadata: { isStaff: Boolean(input.isStaff) },
+    metadata: { isStaff: Boolean(input.isStaff), hasPaymentLink: Boolean(input.paymentUrl) },
   });
 }
 

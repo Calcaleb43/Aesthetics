@@ -23,6 +23,11 @@ export type AvailabilityInput = {
   to: Date;
   busy: BusyRange[];
   now?: Date;
+  /**
+   * Per-calendar-day windows (YYYY-MM-DD).
+   * `null` = closed that day; omit key = fall back to weeklyHours.
+   */
+  dayWindows?: Record<string, { start: string; end: string }[] | null>;
 };
 
 export type Slot = { start: string; end: string };
@@ -91,7 +96,9 @@ export function computeAvailableSlots(input: AvailabilityInput): Slot[] {
   while (dayCursor <= endAnchor) {
     const parts = zonedParts(dayCursor, input.timeZone);
     const key = dayKeyFromWeekday(parts.weekday);
-    const windows = weekly[key] || [];
+    const dateKey = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+    const override = input.dayWindows ? input.dayWindows[dateKey] : undefined;
+    const windows = override === undefined ? weekly[key] || [] : override || [];
     if (windows.length) {
       slots.push(
         ...expandDaySlots(

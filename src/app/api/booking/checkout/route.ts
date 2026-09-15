@@ -16,6 +16,7 @@ import {
   resolveBookingItems,
   staffForAllServices,
 } from "@/lib/booking/service";
+import { applyDiscountToCharge, validateCoupon } from "@/lib/booking/coupons";
 import { createBookingCheckoutSession, normalizePaymentProvider, paymentProviderConfigured } from "@/lib/booking/payments";
 import { siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
@@ -25,6 +26,8 @@ import { getSettings } from "@/lib/content/queries";
 const itemSchema = z.object({
   serviceId: z.string().uuid(),
   variantIds: z.array(z.string().uuid()).optional(),
+  quantity: z.number().int().min(1).max(20).optional(),
+  variantQuantities: z.record(z.string(), z.number().int().min(1).max(20)).optional(),
 });
 
 const schema = z
@@ -35,12 +38,14 @@ const schema = z
     addonIds: z.array(z.string().uuid()).optional(),
     startsAt: z.string().datetime(),
     staffId: z.string().uuid().nullable().optional(),
-  clientName: z.string().min(1).max(160),
-  clientEmail: z.string().email().max(255),
-  clientPhone: z.string().min(1).max(64),
+    clientName: z.string().min(1).max(160),
+    clientEmail: z.string().email().max(255),
+    clientPhone: z.string().min(1).max(64),
     notes: z.string().max(2000).optional().nullable(),
     policyAccepted: z.literal(true),
     payInFull: z.boolean().optional(),
+    promoCode: z.string().max(64).optional().nullable(),
+    clientPackageId: z.string().uuid().optional().nullable(),
   })
   .refine((v) => (v.items?.length || 0) > 0 || (v.serviceIds?.length || 0) > 0, {
     message: "items or serviceIds required",
@@ -230,12 +235,51 @@ export async function POST(req: Request) {
     staffId = null;
   }
 
-  const charge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps, {
+  const rawCharge = multiChargeBreakdown([...lines, ...addons], settings.hstRateBps, {
     preferFullPayment: Boolean(parsed.data.payInFull),
   });
+
+  let discountCents = 0;
+  let couponCode: string | null = null;
+  if (parsed.data.promoCode?.trim()) {
+    const validated = await validateCoupon(db, parsed.data.promoCode, rawCharge.baseCents);
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 400 });
+    }
+    discountCents = validated.discountCents;
+    couponCode = validated.coupon.code;
+  }
+
+  let clientPackageId: string | null = parsed.data.clientPackageId || null;
+  if (clientPackageId) {
+    const pack = await db.clientPackage.findUnique({
+      where: { id: clientPackageId },
+      include: { package: { include: { services: true } } },
+    });
+    if (!pack || pack.status !== "active" || pack.sessionsRemaining < 1) {
+      return NextResponse.json({ error: "Package credit is not available" }, { status: 400 });
+    }
+    const allowed = new Set(pack.package.services.map((s) => s.serviceId));
+    if (allowed.size > 0 && !serviceIds.every((id) => allowed.has(id))) {
+      return NextResponse.json({ error: "Package does not cover the selected services" }, { status: 400 });
+    }
+    // Package redeem: no online charge for covered visit
+    discountCents = rawCharge.baseCents;
+    couponCode = null;
+  }
+
+  const charge = applyDiscountToCharge({
+    ...rawCharge,
+    discountCents,
+    hstRateBps: settings.hstRateBps,
+  });
+
   const paymentProvider = normalizePaymentProvider(settings.paymentProvider);
   const instantlyConfirmed =
-    paymentProvider === "none" || charge.paymentMode === "none" || charge.totalCents <= 0;
+    paymentProvider === "none" ||
+    charge.paymentMode === "none" ||
+    charge.totalCents <= 0 ||
+    Boolean(clientPackageId);
 
   const clientName = parsed.data.clientName.trim();
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
@@ -249,6 +293,19 @@ export async function POST(req: Request) {
     name: clientName,
     phone: clientPhone,
   });
+
+  if (clientPackageId) {
+    const pack = await db.clientPackage.findUnique({ where: { id: clientPackageId } });
+    if (!pack || pack.sessionsRemaining < 1 || pack.status !== "active") {
+      return NextResponse.json({ error: "Package credit is not available" }, { status: 400 });
+    }
+    if (pack.clientId !== client.id) {
+      await db.clientPackage.update({
+        where: { id: pack.id },
+        data: { clientId: client.id },
+      });
+    }
+  }
 
   const appointment = await db.appointment.create({
     data: {
@@ -267,7 +324,10 @@ export async function POST(req: Request) {
       depositCents: charge.depositCents,
       taxCents: charge.taxCents,
       amountChargedCents: charge.totalCents,
-      paymentMode: charge.paymentMode,
+      paymentMode: clientPackageId ? "none" : charge.paymentMode,
+      couponCode,
+      discountCents: charge.discountCents,
+      clientPackageId,
       serviceLabel,
       policyAcceptedAt: new Date(),
       lines: {
@@ -279,6 +339,7 @@ export async function POST(req: Request) {
           priceCents: l.priceCents,
           depositCents: l.depositCents,
           paymentMode: l.paymentMode,
+          quantity: l.quantity,
           sortOrder: index,
         })),
       },
@@ -290,11 +351,33 @@ export async function POST(req: Request) {
           priceCents: a.priceCents,
           depositCents: a.depositCents,
           paymentMode: a.paymentMode,
+          quantity: 1,
           sortOrder: index,
         })),
       },
     },
   });
+
+  if (clientPackageId) {
+    await db.clientPackage.update({
+      where: { id: clientPackageId },
+      data: { sessionsRemaining: { decrement: 1 } },
+    });
+    const updated = await db.clientPackage.findUnique({ where: { id: clientPackageId } });
+    if (updated && updated.sessionsRemaining <= 0) {
+      await db.clientPackage.update({
+        where: { id: clientPackageId },
+        data: { status: "redeemed", sessionsRemaining: 0 },
+      });
+    }
+  }
+
+  if (couponCode) {
+    await db.coupon.update({
+      where: { code: couponCode },
+      data: { redeemedCount: { increment: 1 } },
+    });
+  }
 
   if (instantlyConfirmed) {
     await announceAppointmentBooked(db, appointment.id);
@@ -333,8 +416,33 @@ export async function POST(req: Request) {
 
     await db.appointment.update({
       where: { id: appointment.id },
-      data: { stripeSessionId: session.externalId || null },
+      data: {
+        stripeSessionId: session.externalId || null,
+        stripeCheckoutUrl: session.checkoutUrl,
+      },
     });
+
+    // Payment-hold email with checkout link
+    try {
+      const { emailAppointmentBooked } = await import("@/lib/email/resend");
+      const whenLabel = new Intl.DateTimeFormat("en-CA", {
+        timeZone: settings.timezone,
+        dateStyle: "full",
+        timeStyle: "short",
+      }).format(startsAt);
+      await emailAppointmentBooked({
+        db,
+        appointmentId: appointment.id,
+        to: appointment.clientEmail,
+        clientName: appointment.clientName,
+        serviceTitle: serviceLabel,
+        whenLabel,
+        amountChargedCents: charge.totalCents,
+        paymentUrl: session.checkoutUrl,
+      });
+    } catch (emailErr) {
+      console.error("Pending payment email failed", emailErr);
+    }
 
     return NextResponse.json({
       ok: true,

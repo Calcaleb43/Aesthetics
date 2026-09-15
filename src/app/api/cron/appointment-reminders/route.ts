@@ -45,7 +45,7 @@ async function run(req: Request) {
   const [reminders, thankYous] = await Promise.all([
     db.appointment.findMany({
       where: {
-        status: "confirmed",
+        status: { in: ["confirmed", "pending_payment"] },
         reminderSentAt: null,
         startsAt: { gte: reminderWindowStart, lte: reminderWindowEnd },
       },
@@ -81,6 +81,8 @@ async function run(req: Request) {
       whenLabel,
       staffName: row.staff?.name,
       categorySlug: row.category.slug,
+      paymentUrl:
+        row.status === "pending_payment" && row.stripeCheckoutUrl ? row.stripeCheckoutUrl : null,
     });
 
     await notifyAdmins(db, {

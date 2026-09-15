@@ -258,6 +258,9 @@ export async function getSettings(): Promise<SiteSettings> {
       hstRateBps: row.hstRateBps ?? 1300,
       bookingEnabled: row.bookingEnabled ?? true,
       paymentProvider: row.paymentProvider === "none" ? "none" : "stripe",
+      promoBannerEnabled: row.promoBannerEnabled ?? true,
+      promoBannerText: row.promoBannerText || "Klarna Available at Checkout",
+      promoBannerHref: row.promoBannerHref || "",
     };
   } catch {
     return getSeedSettings();

@@ -87,6 +87,8 @@ export type AppointmentEmailVars = {
   notes?: string | null;
   /** Optional CMS override for subject / intro (from Email templates). */
   copyOverride?: { subject?: string; introHtml?: string } | null;
+  /** Stripe Checkout URL when payment is still owed. */
+  paymentUrl?: string | null;
 };
 
 export type InquiryEmailVars = {
@@ -110,28 +112,43 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
     typeof vars.amountChargedCents === "number" && vars.amountChargedCents > 0
       ? formatCad(vars.amountChargedCents)
       : null;
+  const needsPayment = Boolean(vars.paymentUrl);
 
   return {
-    subject: `Booking confirmed — ${vars.serviceTitle}`,
-    preheader: `${vars.serviceTitle} on ${vars.whenLabel}`,
+    subject: needsPayment
+      ? `Complete payment — ${vars.serviceTitle}`
+      : `Booking confirmed — ${vars.serviceTitle}`,
+    preheader: needsPayment
+      ? `Pay to confirm ${vars.serviceTitle} on ${vars.whenLabel}`
+      : `${vars.serviceTitle} on ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
-      eyebrow: "Confirmed",
-      title: "You're booked",
-      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+      eyebrow: needsPayment ? "Payment" : "Confirmed",
+      title: needsPayment ? "Complete your booking" : "You're booked",
+      introHtml: needsPayment
+        ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment time is held — finish payment to confirm.</p>`
+        : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">Your appointment is confirmed. We look forward to seeing you at the studio.</p>`,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
         ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
-        ...(paid ? [{ label: "Paid", value: paid }] : []),
+        ...(paid ? [{ label: needsPayment ? "Amount due" : "Paid", value: paid }] : []),
       ],
-      bodyHtml: `<p style="margin:0;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>`,
-      ctaHtml: [
-        emailButton("Pre & aftercare", careHref),
-        emailButton("Policies", `${base}/policies`, "ghost"),
-        emailButton("Studio site", base, "ghost"),
-      ].join(""),
+      bodyHtml: needsPayment
+        ? `<p style="margin:0;">Use the button below to pay securely. Your hold may expire if payment is not completed.</p>`
+        : `<p style="margin:0;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>`,
+      ctaHtml: needsPayment
+        ? [
+            emailButton("Complete payment", vars.paymentUrl!),
+            emailButton("Policies", `${base}/policies`, "ghost"),
+          ].join("")
+        : [
+            emailButton("Pre & aftercare", careHref),
+            emailButton("Policies", `${base}/policies`, "ghost"),
+            emailButton("Studio site", base, "ghost"),
+          ].join(""),
     }),
   };
 }
@@ -190,13 +207,16 @@ export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedE
   const careHref = vars.categorySlug ? `${base}/care/${vars.categorySlug}` : `${base}/care`;
   const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.</p>`;
+  const payCta = vars.paymentUrl
+    ? [emailButton("Complete payment", vars.paymentUrl), emailButton("Pre-care guide", careHref, "ghost")]
+    : [emailButton("Pre-care guide", careHref), emailButton("Policies", `${base}/policies`, "ghost")];
   return {
     subject: vars.copyOverride?.subject || `Reminder — ${vars.serviceTitle} tomorrow`,
     preheader: `${vars.serviceTitle} on ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Reminder",
-      title: "See you soon",
+      title: vars.paymentUrl ? "Payment still needed" : "See you soon",
       introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
@@ -204,10 +224,7 @@ export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedE
         ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
         { label: "Location", value: studio.address },
       ],
-      ctaHtml: [
-        emailButton("Pre-care guide", careHref),
-        emailButton("Policies", `${base}/policies`, "ghost"),
-      ].join(""),
+      ctaHtml: payCta.join(""),
     }),
   };
 }

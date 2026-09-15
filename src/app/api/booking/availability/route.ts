@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addDays, subMinutes } from "date-fns";
+import { addDays, endOfMonth, startOfMonth, subMinutes } from "date-fns";
 import {
   activeHoldStatuses,
   computeAvailableSlots,
@@ -7,12 +7,18 @@ import {
   type BusyRange,
 } from "@/lib/booking/availability";
 import {
+  pickOverridesForStaff,
+  windowsForDate,
+  type DayOverrideRow,
+} from "@/lib/booking/day-overrides";
+import {
   findBookableAddons,
   normalizeBookingItems,
   resolveBookingItems,
   staffForAllServices,
   type BookingItemInput,
 } from "@/lib/booking/service";
+import { dayKeyFromWeekday, zonedParts } from "@/lib/booking/money";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -48,6 +54,47 @@ function parseItems(url: URL): BookingItemInput[] | null {
   return normalizeBookingItems({ serviceIds: parseServiceIds(url) });
 }
 
+function dateKeyFromParts(parts: { year: number; month: number; day: number }) {
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function buildDayWindows(input: {
+  from: Date;
+  to: Date;
+  timeZone: string;
+  weeklyHours: unknown;
+  overrides: DayOverrideRow[];
+  staffId: string | null;
+}): Record<string, { start: string; end: string }[] | null> {
+  const map: Record<string, { start: string; end: string }[] | null> = {};
+  let cursor = new Date(input.from);
+  cursor.setUTCHours(12, 0, 0, 0);
+  const end = new Date(input.to);
+  end.setUTCHours(12, 0, 0, 0);
+  while (cursor <= end) {
+    const parts = zonedParts(cursor, input.timeZone);
+    const dateKey = dateKeyFromParts(parts);
+    const dayKey = dayKeyFromWeekday(parts.weekday);
+    const { staffOverride, studioOverride } = pickOverridesForStaff(
+      input.overrides,
+      dateKey,
+      input.staffId,
+    );
+    const windows = windowsForDate({
+      dateKey,
+      dayKey,
+      weeklyHours: input.weeklyHours,
+      studioOverride,
+      staffOverride,
+    });
+    if (staffOverride || studioOverride) {
+      map[dateKey] = windows;
+    }
+    cursor = addDays(cursor, 1);
+  }
+  return map;
+}
+
 export async function GET(req: Request) {
   if (!hasDatabase()) {
     return NextResponse.json(
@@ -61,6 +108,9 @@ export async function GET(req: Request) {
   const addonIds = parseAddonIds(url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
+  const staffIdParam = url.searchParams.get("staffId");
+  const datesOnly = url.searchParams.get("datesOnly") === "1";
+  const monthParam = url.searchParams.get("month"); // YYYY-MM
 
   if (!items?.length) {
     return NextResponse.json({ error: "serviceIds or items required" }, { status: 400 });
@@ -70,7 +120,7 @@ export async function GET(req: Request) {
     const db = getPrisma();
     const settings = await getSettings();
     if (!settings.bookingEnabled) {
-      return NextResponse.json({ slots: [] });
+      return NextResponse.json({ slots: [], availableDates: [], staff: [] });
     }
 
     await db.appointment.updateMany({
@@ -96,13 +146,45 @@ export async function GET(req: Request) {
     const durationMinutes =
       lines.reduce((sum, l) => sum + l.durationMinutes, 0) +
       addons.reduce((sum, a) => sum + a.durationMinutes, 0);
-    const from = fromParam ? new Date(fromParam) : new Date();
-    const to = toParam ? new Date(toParam) : addDays(from, 14);
+
+    let from: Date;
+    let to: Date;
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      const [y, m] = monthParam.split("-").map(Number);
+      from = startOfMonth(new Date(Date.UTC(y, m - 1, 1, 12)));
+      to = endOfMonth(from);
+      to = addDays(to, 1);
+    } else {
+      from = fromParam ? new Date(fromParam) : new Date();
+      to = toParam ? new Date(toParam) : addDays(from, 14);
+    }
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
       return NextResponse.json({ error: "Invalid date range" }, { status: 400 });
     }
 
     const assigned = await staffForAllServices(db, serviceIds);
+    const staffOptions = assigned.map((a) => ({ id: a.id, name: a.name }));
+
+    const preferredStaffId =
+      staffIdParam && assigned.some((a) => a.id === staffIdParam) ? staffIdParam : null;
+
+    const overrideRows = await db.dayOverride.findMany({
+      where: {
+        date: {
+          gte: dateKeyFromParts(zonedParts(from, settings.timezone)),
+          lte: dateKeyFromParts(zonedParts(addDays(to, -1), settings.timezone)),
+        },
+        OR: preferredStaffId
+          ? [{ staffId: null }, { staffId: preferredStaffId }]
+          : [{ staffId: null }, { staffId: { in: assigned.map((a) => a.id) } }],
+      },
+    });
+    const overrides: DayOverrideRow[] = overrideRows.map((r) => ({
+      date: r.date,
+      staffId: r.staffId,
+      closed: r.closed,
+      windows: r.windows,
+    }));
 
     const holds = activeHoldStatuses();
     const studioBlocks = await db.blockedTime.findMany({
@@ -126,8 +208,12 @@ export async function GET(req: Request) {
     };
 
     const slots: StaffSlot[] = [];
+    const staffPool =
+      preferredStaffId && assigned.length
+        ? assigned.filter((a) => a.id === preferredStaffId)
+        : assigned;
 
-    if (!assigned.length) {
+    if (!staffPool.length && !assigned.length) {
       const appointments = await db.appointment.findMany({
         where: {
           status: { in: [...holds] },
@@ -140,16 +226,26 @@ export async function GET(req: Request) {
         ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
         ...studioBlocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
       ];
+      const dayWindows = buildDayWindows({
+        from,
+        to,
+        timeZone: settings.timezone,
+        weeklyHours: settings.weeklyHours,
+        overrides,
+        staffId: null,
+      });
       for (const s of computeAvailableSlots({
         ...baseInput,
         weeklyHours: settings.weeklyHours,
         busy,
+        dayWindows,
       })) {
         slots.push({ ...s, staffId: null, staffName: null });
       }
     } else {
+      const pool = staffPool.length ? staffPool : assigned;
       const byStart = new Map<string, StaffSlot>();
-      for (const admin of assigned) {
+      for (const admin of pool) {
         const [appointments, staffBlocks] = await Promise.all([
           db.appointment.findMany({
             where: {
@@ -173,12 +269,24 @@ export async function GET(req: Request) {
           ...appointments.map((a) => ({ startsAt: a.startsAt, endsAt: a.endsAt })),
           ...staffBlocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
         ];
+        const weekly = effectiveWeeklyHours(admin.weeklyHours, settings.weeklyHours);
+        const dayWindows = buildDayWindows({
+          from,
+          to,
+          timeZone: settings.timezone,
+          weeklyHours: weekly,
+          overrides,
+          staffId: admin.id,
+        });
         for (const s of computeAvailableSlots({
           ...baseInput,
-          weeklyHours: effectiveWeeklyHours(admin.weeklyHours, settings.weeklyHours),
+          weeklyHours: weekly,
           busy,
+          dayWindows,
         })) {
-          if (!byStart.has(s.start)) {
+          if (preferredStaffId) {
+            slots.push({ ...s, staffId: admin.id, staffName: admin.name });
+          } else if (!byStart.has(s.start)) {
             byStart.set(s.start, {
               ...s,
               staffId: admin.id,
@@ -187,7 +295,34 @@ export async function GET(req: Request) {
           }
         }
       }
-      slots.push(...[...byStart.values()].sort((a, b) => a.start.localeCompare(b.start)));
+      if (!preferredStaffId) {
+        slots.push(...[...byStart.values()].sort((a, b) => a.start.localeCompare(b.start)));
+      } else {
+        slots.sort((a, b) => a.start.localeCompare(b.start));
+      }
+    }
+
+    const availableDates = [
+      ...new Set(
+        slots.map((s) => {
+          const parts = zonedParts(new Date(s.start), settings.timezone);
+          return dateKeyFromParts(parts);
+        }),
+      ),
+    ].sort();
+
+    if (datesOnly) {
+      return NextResponse.json({
+        serviceIds,
+        items,
+        addonIds: addons.map((a) => a.id),
+        categoryIds,
+        timezone: settings.timezone,
+        durationMinutes,
+        availableDates,
+        staff: staffOptions,
+        slots: [],
+      });
     }
 
     return NextResponse.json({
@@ -197,6 +332,8 @@ export async function GET(req: Request) {
       categoryIds,
       timezone: settings.timezone,
       durationMinutes,
+      availableDates,
+      staff: staffOptions,
       slots,
     });
   } catch (err) {

@@ -47,9 +47,13 @@ type ResolvedLine = {
   paymentMode: string;
   priceLabel: string;
   categoryTitle?: string;
+  quantity: number;
+  unitDurationMinutes: number;
+  unitPriceCents: number;
 };
 
 type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
+type StaffOption = { id: string; name: string };
 
 type StepName = "Services" | "Add-ons" | "Date" | "Time" | "Details" | "Review" | "Pay";
 
@@ -57,6 +61,10 @@ const ALL_STEPS: StepName[] = ["Services", "Add-ons", "Date", "Time", "Details",
 
 function serviceHasVariants(s: BookableService) {
   return Boolean(s.hasVariants || (s.variants && s.variants.length > 0));
+}
+
+function clampQty(n: number) {
+  return Math.min(20, Math.max(1, Math.floor(n) || 1));
 }
 
 export function BookingWizard({
@@ -73,15 +81,25 @@ export function BookingWizard({
   const [loadingServices, setLoadingServices] = useState(true);
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
   const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string[]>>({});
+  const [lineQuantities, setLineQuantities] = useState<Record<string, number>>({});
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
   const [expandedVariantServiceIds, setExpandedVariantServiceIds] = useState<string[]>([]);
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [loadingDates, setLoadingDates] = useState(false);
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [preferredStaffId, setPreferredStaffId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotStart, setSlotStart] = useState<string>("");
   const [slotStaffId, setSlotStaffId] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState("");
+  const [clientPackageId, setClientPackageId] = useState<string | null>(null);
+  const [clientPackages, setClientPackages] = useState<
+    { id: string; title: string; sessionsRemaining: number; serviceIds: string[] }[]
+  >([]);
   const [step, setStep] = useState(0);
   const [furthest, setFurthest] = useState(0);
   const [name, setName] = useState("");
@@ -107,11 +125,23 @@ export function BookingWizard({
 
   const bookingItems = useMemo(
     () =>
-      selectedServices.map((s) => ({
-        serviceId: s.id,
-        variantIds: serviceHasVariants(s) ? selectedVariantIds[s.id] || [] : [],
-      })),
-    [selectedServices, selectedVariantIds],
+      selectedServices.map((s) => {
+        const variantIds = serviceHasVariants(s) ? selectedVariantIds[s.id] || [] : [];
+        if (variantIds.length) {
+          const variantQuantities: Record<string, number> = {};
+          for (const vid of variantIds) {
+            variantQuantities[vid] = clampQty(lineQuantities[`${s.id}:${vid}`] ?? 1);
+          }
+          return { serviceId: s.id, variantIds, variantQuantities, quantity: 1 };
+        }
+        return {
+          serviceId: s.id,
+          variantIds: [],
+          quantity: clampQty(lineQuantities[`${s.id}:`] ?? 1),
+          variantQuantities: {},
+        };
+      }),
+    [selectedServices, selectedVariantIds, lineQuantities],
   );
 
   const selectionComplete = useMemo(
@@ -129,34 +159,42 @@ export function BookingWizard({
         for (const vid of ids) {
           const v = (s.variants || []).find((x) => x.id === vid);
           if (!v) continue;
+          const quantity = clampQty(lineQuantities[`${s.id}:${vid}`] ?? 1);
           lines.push({
             serviceId: s.id,
             variantId: v.id,
             title: `${s.title}: ${v.title}`,
-            durationMinutes: v.durationMinutes,
-            priceCents: v.priceCents,
-            depositCents: v.depositCents,
+            unitDurationMinutes: v.durationMinutes,
+            unitPriceCents: v.priceCents,
+            durationMinutes: v.durationMinutes * quantity,
+            priceCents: v.priceCents * quantity,
+            depositCents: v.depositCents == null ? null : v.depositCents * quantity,
             paymentMode: v.paymentMode,
             priceLabel: v.priceLabel,
             categoryTitle: s.categoryTitle,
+            quantity,
           });
         }
       } else {
+        const quantity = clampQty(lineQuantities[`${s.id}:`] ?? 1);
         lines.push({
           serviceId: s.id,
           variantId: null,
           title: s.title,
-          durationMinutes: s.durationMinutes,
-          priceCents: s.priceCents,
-          depositCents: s.depositCents,
+          unitDurationMinutes: s.durationMinutes,
+          unitPriceCents: s.priceCents,
+          durationMinutes: s.durationMinutes * quantity,
+          priceCents: s.priceCents * quantity,
+          depositCents: s.depositCents == null ? null : s.depositCents * quantity,
           paymentMode: s.paymentMode,
           priceLabel: s.priceLabel,
           categoryTitle: s.categoryTitle,
+          quantity,
         });
       }
     }
     return lines;
-  }, [selectedServices, selectedVariantIds]);
+  }, [selectedServices, selectedVariantIds, lineQuantities]);
 
   const selectedCategoryIds = useMemo(
     () => [...new Set(selectedServices.map((s) => s.categoryId))],
@@ -360,6 +398,43 @@ export function BookingWizard({
   }, [initialSlug]);
 
   useEffect(() => {
+    if (!selectionComplete) {
+      setAvailableDates([]);
+      setStaffOptions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingDates(true);
+      try {
+        const params = new URLSearchParams({
+          datesOnly: "1",
+          month: format(month, "yyyy-MM"),
+          items: JSON.stringify(bookingItems),
+        });
+        if (selectedAddonIds.length) params.set("addonIds", selectedAddonIds.join(","));
+        if (preferredStaffId) params.set("staffId", preferredStaffId);
+        const res = await fetch(`/api/booking/availability?${params}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setAvailableDates([]);
+          return;
+        }
+        setAvailableDates(data.availableDates || []);
+        setStaffOptions(data.staff || []);
+      } catch {
+        if (!cancelled) setAvailableDates([]);
+      } finally {
+        if (!cancelled) setLoadingDates(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectionComplete, bookingItems, selectedAddonIds, month, preferredStaffId]);
+
+  useEffect(() => {
     if (!selectionComplete || !selectedDay) {
       setSlots([]);
       return;
@@ -378,6 +453,7 @@ export function BookingWizard({
           items: JSON.stringify(bookingItems),
         });
         if (selectedAddonIds.length) params.set("addonIds", selectedAddonIds.join(","));
+        if (preferredStaffId) params.set("staffId", preferredStaffId);
         const res = await fetch(`/api/booking/availability?${params}`);
         const data = await res.json();
         if (cancelled) return;
@@ -387,6 +463,7 @@ export function BookingWizard({
           return;
         }
         setSlots(data.slots || []);
+        if (data.staff?.length) setStaffOptions(data.staff);
       } catch {
         if (!cancelled) setError("Could not load availability");
       } finally {
@@ -396,18 +473,27 @@ export function BookingWizard({
     return () => {
       cancelled = true;
     };
-  }, [selectionComplete, bookingItems, selectedAddonIds, selectedDay]);
+  }, [selectionComplete, bookingItems, selectedAddonIds, selectedDay, preferredStaffId]);
 
   useEffect(() => {
     const normalized = email.trim().toLowerCase();
-    if (!normalized.includes("@") || normalized.length < 5) return;
+    if (!normalized.includes("@") || normalized.length < 5) {
+      setClientPackages([]);
+      return;
+    }
     const t = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/api/booking/client-lookup?email=${encodeURIComponent(normalized)}`);
-        const data = await res.json();
-        if (!data.found) return;
-        if (!nameDirty && data.name) setName(data.name);
-        if (!phoneDirty && data.phone) setPhone(data.phone);
+        const [lookupRes, pkgRes] = await Promise.all([
+          fetch(`/api/booking/client-lookup?email=${encodeURIComponent(normalized)}`),
+          fetch(`/api/booking/packages?email=${encodeURIComponent(normalized)}`),
+        ]);
+        const lookup = await lookupRes.json();
+        if (lookup.found) {
+          if (!nameDirty && lookup.name) setName(lookup.name);
+          if (!phoneDirty && lookup.phone) setPhone(lookup.phone);
+        }
+        const pkgs = await pkgRes.json();
+        if (pkgRes.ok) setClientPackages(pkgs.packages || []);
       } catch {
         /* ignore */
       }
@@ -528,6 +614,8 @@ export function BookingWizard({
             notes: notes || null,
             policyAccepted: true,
             payInFull: chargeOptions.canChooseFull && payInFull,
+            promoCode: promoCode.trim() || undefined,
+            clientPackageId: clientPackageId || undefined,
           }),
         });
         const data = await res.json();
@@ -833,6 +921,44 @@ export function BookingWizard({
 
       {stepName === "Date" && (
         <div>
+          {staffOptions.length > 0 ? (
+            <div className="mb-5">
+              <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--ink-soft)]">Who would you like?</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPreferredStaffId(null);
+                    setSelectedDay(null);
+                    setSlotStart("");
+                  }}
+                  className={`rounded-full border px-4 py-2 text-sm transition ${
+                    !preferredStaffId ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                  }`}
+                >
+                  Any available
+                </button>
+                {staffOptions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setPreferredStaffId(s.id);
+                      setSelectedDay(null);
+                      setSlotStart("");
+                    }}
+                    className={`rounded-full border px-4 py-2 text-sm transition ${
+                      preferredStaffId === s.id
+                        ? "border-black bg-black text-white"
+                        : "border-black/15 hover:border-black/40"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="mb-4 flex items-center justify-end gap-2">
             <button
               type="button"
@@ -874,16 +1000,18 @@ export function BookingWizard({
               const key = format(day, "yyyy-MM-dd");
               const active = selectedDay === key;
               const past = day < new Date(new Date().toDateString());
+              const open = availableDates.includes(key);
+              const disabled = past || (!open && !loadingDates);
               return (
                 <button
                   key={key}
                   type="button"
-                  disabled={past}
+                  disabled={disabled}
                   onClick={() => selectDay(day)}
                   className={`aspect-square min-h-10 rounded-xl text-sm transition sm:min-h-0 ${
                     active
                       ? "bg-black text-white"
-                      : past
+                      : disabled
                         ? "cursor-not-allowed text-black/25"
                         : "border border-black/10 hover:border-black/40"
                   }`}
@@ -893,7 +1021,10 @@ export function BookingWizard({
               );
             })}
           </div>
-          <p className="mt-4 text-xs text-[var(--ink-soft)]">Times shown in {timezone.replace(/_/g, " ")}.</p>
+          <p className="mt-4 text-xs text-[var(--ink-soft)]">
+            {loadingDates ? "Checking open days…" : "Only dates with open times are selectable."} Times in{" "}
+            {timezone.replace(/_/g, " ")}.
+          </p>
           <NavFooter
             continueLabel="Continue"
             continueDisabled={!selectedDay}
@@ -910,6 +1041,36 @@ export function BookingWizard({
 
       {stepName === "Time" && selectedDay && (
         <div>
+          {staffOptions.length > 0 ? (
+            <div className="mb-5">
+              <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--ink-soft)]">Provider</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreferredStaffId(null)}
+                  className={`rounded-full border px-4 py-2 text-sm transition ${
+                    !preferredStaffId ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
+                  }`}
+                >
+                  Any available
+                </button>
+                {staffOptions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setPreferredStaffId(s.id)}
+                    className={`rounded-full border px-4 py-2 text-sm transition ${
+                      preferredStaffId === s.id
+                        ? "border-black bg-black text-white"
+                        : "border-black/15 hover:border-black/40"
+                    }`}
+                  >
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <p className="mb-4 text-sm text-[var(--ink-soft)]">
             {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")} · {totals.titles} · {totals.durationMinutes}{" "}
             min
@@ -1043,21 +1204,90 @@ export function BookingWizard({
                   Edit
                 </button>
               </div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {serviceLines.map((s) => (
-                  <li key={`${s.serviceId}-${s.variantId || "base"}`} className="flex items-start justify-between gap-3">
-                    <span>
-                      {s.title}
-                      {s.categoryTitle ? (
-                        <span className="mt-0.5 block text-xs text-[var(--ink-soft)]">{s.categoryTitle}</span>
-                      ) : null}
-                    </span>
-                    <span className="shrink-0 text-[var(--ink-soft)]">
-                      {s.durationMinutes} min · {s.priceLabel}
-                    </span>
-                  </li>
-                ))}
+              <ul className="mt-3 space-y-3 text-sm">
+                {serviceLines.map((s) => {
+                  const qKey = `${s.serviceId}:${s.variantId || ""}`;
+                  return (
+                    <li key={qKey} className="flex flex-wrap items-center justify-between gap-3">
+                      <span className="min-w-0 flex-1">
+                        {s.title}
+                        {s.categoryTitle ? (
+                          <span className="mt-0.5 block text-xs text-[var(--ink-soft)]">{s.categoryTitle}</span>
+                        ) : null}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-xs text-[var(--ink-soft)]">
+                          Qty
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            className="admin-input !w-16 !bg-white !py-1 !text-black"
+                            value={s.quantity}
+                            onChange={(e) =>
+                              setLineQuantities((prev) => ({
+                                ...prev,
+                                [qKey]: clampQty(Number(e.target.value)),
+                              }))
+                            }
+                          />
+                        </label>
+                        <span className="shrink-0 text-[var(--ink-soft)]">
+                          {s.durationMinutes} min · {formatCad(s.priceCents)}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
+            </section>
+
+            <section className="rounded-2xl border border-black/10 p-5">
+              <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Promo &amp; packages</h4>
+              <label className="mt-3 grid gap-1 text-sm">
+                Coupon code
+                <input
+                  className="admin-input !bg-white !text-black"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+                  placeholder="Optional"
+                />
+              </label>
+              {clientPackages.length ? (
+                <div className="mt-4">
+                  <p className="text-xs uppercase tracking-[0.12em] text-[var(--ink-soft)]">Use package credit</p>
+                  <div className="mt-2 grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setClientPackageId(null)}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                        !clientPackageId ? "border-black bg-black text-white" : "border-black/15"
+                      }`}
+                    >
+                      Don&apos;t use a package
+                    </button>
+                    {clientPackages.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setClientPackageId(p.id)}
+                        className={`rounded-xl border px-4 py-3 text-left text-sm ${
+                          clientPackageId === p.id ? "border-black bg-black text-white" : "border-black/15"
+                        }`}
+                      >
+                        {p.title}
+                        <span
+                          className={`mt-0.5 block text-xs ${
+                            clientPackageId === p.id ? "text-white/70" : "text-[var(--ink-soft)]"
+                          }`}
+                        >
+                          {p.sessionsRemaining} session{p.sessionsRemaining === 1 ? "" : "s"} left
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-black/10 p-5">

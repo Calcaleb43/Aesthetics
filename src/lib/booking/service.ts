@@ -10,6 +10,10 @@ export function isUuid(value: string) {
 export type BookingItemInput = {
   serviceId: string;
   variantIds?: string[];
+  /** Quantity when the service has no variants (default 1). */
+  quantity?: number;
+  /** Quantity per variant id (default 1). */
+  variantQuantities?: Record<string, number>;
 };
 
 export type ResolvedBookingLine = {
@@ -21,7 +25,14 @@ export type ResolvedBookingLine = {
   priceCents: number;
   depositCents: number | null;
   paymentMode: string;
+  quantity: number;
 };
+
+function clampQty(n: unknown) {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return 1;
+  return Math.min(20, Math.max(1, Math.floor(v)));
+}
 
 /** Normalize checkout/availability payloads into booking items. */
 export function normalizeBookingItems(input: {
@@ -35,9 +46,15 @@ export function normalizeBookingItems(input: {
       const serviceId = item.serviceId?.trim();
       if (!serviceId || seen.has(serviceId)) continue;
       seen.add(serviceId);
+      const variantQuantities: Record<string, number> = {};
+      for (const [k, v] of Object.entries(item.variantQuantities || {})) {
+        variantQuantities[k] = clampQty(v);
+      }
       items.push({
         serviceId,
         variantIds: [...new Set((item.variantIds || []).map((id) => id.trim()).filter(Boolean))],
+        quantity: clampQty(item.quantity ?? 1),
+        variantQuantities,
       });
     }
     return items.length ? items : null;
@@ -45,7 +62,7 @@ export function normalizeBookingItems(input: {
 
   const ids = [...new Set((input.serviceIds || []).map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return null;
-  return ids.map((serviceId) => ({ serviceId, variantIds: [] }));
+  return ids.map((serviceId) => ({ serviceId, variantIds: [], quantity: 1, variantQuantities: {} }));
 }
 
 /**
@@ -99,15 +116,18 @@ export async function resolveBookingItems(
         for (const variantId of requested) {
           const variant = variantById.get(variantId);
           if (!variant) return null;
+          const quantity = clampQty(item.variantQuantities?.[variantId] ?? 1);
           lines.push({
             serviceId: service.id,
             variantId: variant.id,
             categoryId: service.categoryId,
             title: `${service.title}: ${variant.title}`.slice(0, 200),
-            durationMinutes: variant.durationMinutes,
-            priceCents: variant.priceCents,
-            depositCents: variant.depositCents,
+            durationMinutes: variant.durationMinutes * quantity,
+            priceCents: variant.priceCents * quantity,
+            depositCents:
+              variant.depositCents == null ? null : variant.depositCents * quantity,
             paymentMode: variant.paymentMode,
+            quantity,
           });
         }
         continue;
@@ -116,15 +136,17 @@ export async function resolveBookingItems(
       return null;
     }
 
+    const quantity = clampQty(item.quantity ?? 1);
     lines.push({
       serviceId: service.id,
       variantId: null,
       categoryId: service.categoryId,
       title: service.title,
-      durationMinutes: service.durationMinutes,
-      priceCents: service.priceCents,
-      depositCents: service.depositCents,
+      durationMinutes: service.durationMinutes * quantity,
+      priceCents: service.priceCents * quantity,
+      depositCents: service.depositCents == null ? null : service.depositCents * quantity,
       paymentMode: service.paymentMode,
+      quantity,
     });
   }
 

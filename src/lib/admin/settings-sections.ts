@@ -1,6 +1,6 @@
 import type { EditorSection } from "@/components/admin/AdminEditor";
 
-export type SettingsSectionId = "brand" | "booking" | "reviews" | "media" | "copy";
+export type SettingsSectionId = "brand" | "booking" | "reviews" | "media" | "copy" | "promo";
 
 export type SettingsSectionDef = {
   id: SettingsSectionId;
@@ -79,6 +79,20 @@ const copyFields: EditorSection["fields"] = [
   { name: "meetAnie", label: "Meet Anie", type: "textarea", rows: 8 },
 ];
 
+const promoFields: EditorSection["fields"] = [
+  { name: "promoBannerEnabled", label: "Show promo banner", type: "boolean" },
+  {
+    name: "promoBannerText",
+    label: "Banner text",
+    hint: 'Default: "Klarna Available at Checkout"',
+  },
+  {
+    name: "promoBannerHref",
+    label: "Banner link (optional)",
+    hint: "Leave blank for text-only. Example: /book-now",
+  },
+];
+
 export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     id: "brand",
@@ -94,6 +108,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     summary: "Online booking, hours, tax, and payment platform.",
     href: "/admin/settings/booking",
     fields: bookingFields,
+  },
+  {
+    id: "promo",
+    title: "Promo banner",
+    summary: "Site-wide announcement bar above the header.",
+    description: "Shown on every public page when enabled. Klarna must still be enabled in Stripe Dashboard.",
+    href: "/admin/settings/promo",
+    fields: promoFields,
   },
   {
     id: "reviews",

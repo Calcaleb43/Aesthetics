@@ -37,6 +37,9 @@ const schema = z
     hstRateBps: z.number().int().min(0),
     bookingEnabled: z.boolean(),
     paymentProvider: z.enum(["stripe", "none"]),
+    promoBannerEnabled: z.boolean(),
+    promoBannerText: z.string(),
+    promoBannerHref: z.string(),
   })
   .partial();
 
@@ -76,6 +79,9 @@ export async function PUT(req: Request) {
   if (body.hstRateBps !== undefined) patch.hstRateBps = body.hstRateBps;
   if (body.bookingEnabled !== undefined) patch.bookingEnabled = body.bookingEnabled;
   if (body.paymentProvider !== undefined) patch.paymentProvider = body.paymentProvider;
+  if (body.promoBannerEnabled !== undefined) patch.promoBannerEnabled = body.promoBannerEnabled;
+  if (body.promoBannerText !== undefined) patch.promoBannerText = body.promoBannerText;
+  if (body.promoBannerHref !== undefined) patch.promoBannerHref = body.promoBannerHref;
 
   const seed = getSeedSettings();
   const createData: Prisma.SiteSettingsUncheckedCreateInput = {
