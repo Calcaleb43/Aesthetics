@@ -246,6 +246,7 @@ export default async function AdminDashboardPage() {
           {[
             { href: "/admin/appointments", label: "Appointments calendar" },
             { href: "/admin/availability", label: "Availability & hours" },
+            { href: "/admin/revenue", label: "Revenue & accounting" },
             { href: "/admin/clients", label: "Client list" },
             { href: "/admin/inquiries", label: "Inquiry inbox" },
             { href: "/admin/settings", label: "Homepage & branding" },

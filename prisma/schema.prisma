@@ -23,6 +23,8 @@ model Admin {
   notifications Notification[]
   blockedTimes BlockedTime[]
   dayOverrides DayOverride[]
+  accountingAdjustments AccountingAdjustment[]
+  accountingExpenses    AccountingExpense[]
 
   @@map("admins")
 }
@@ -541,4 +543,48 @@ model ClientPackage {
   @@index([clientId, status])
   @@index([packageId])
   @@map("client_packages")
+}
+
+/// Manual accounting entries (refunds, corrections, offline payments).
+model AccountingAdjustment {
+  id              String    @id @default(uuid()) @db.Uuid
+  /// refund | adjustment | offline_payment | write_off
+  type            String    @db.VarChar(32)
+  /// Positive = money in; negative = money out (refunds)
+  amountCents     Int       @map("amount_cents")
+  taxCents        Int       @default(0) @map("tax_cents")
+  note            String    @default("")
+  appointmentId   String?   @map("appointment_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  clientEmail     String?   @map("client_email") @db.VarChar(255)
+  createdById     String?   @map("created_by_id") @db.Uuid
+  createdBy       Admin?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  occurredAt      DateTime  @map("occurred_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([occurredAt])
+  @@index([type, occurredAt])
+  @@index([appointmentId])
+  @@index([clientId])
+  @@map("accounting_adjustments")
+}
+
+/// Studio operating expenses (rent, supplies, payroll, marketing, etc.).
+model AccountingExpense {
+  id          String   @id @default(uuid()) @db.Uuid
+  /// rent | supplies | payroll | marketing | utilities | equipment | insurance | software | contractor | other
+  category    String   @db.VarChar(40)
+  vendor      String   @default("") @db.VarChar(160)
+  note        String   @default("")
+  /// Always stored as positive cents (money out)
+  amountCents Int      @map("amount_cents")
+  taxCents    Int      @default(0) @map("tax_cents")
+  occurredAt  DateTime @map("occurred_at") @db.Timestamptz(6)
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdBy   Admin?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([occurredAt])
+  @@index([category, occurredAt])
+  @@map("accounting_expenses")
 }

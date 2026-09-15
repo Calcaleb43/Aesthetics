@@ -23,6 +23,7 @@ import {
   X,
   PlusCircle,
   Clock,
+  CircleDollarSign,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -50,6 +51,7 @@ const groups: NavGroup[] = [
       { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
       { href: "/admin/appointments", label: "Appointments", icon: CalendarDays },
       { href: "/admin/availability", label: "Availability", icon: Clock },
+      { href: "/admin/revenue", label: "Revenue", icon: CircleDollarSign },
       { href: "/admin/clients", label: "Clients", icon: UserRound },
       { href: "/admin/inquiries", label: "Inquiries", icon: MessageSquare },
     ],
