@@ -1,7 +1,7 @@
+import { contentToSafeHtml, looksLikeHtml, sanitizeCmsHtml } from "@/lib/content/html";
 import type { Database } from "@/lib/db";
 import {
   DEFAULT_STUDIO,
-  escapeHtml,
   renderEmailLayout,
   type StudioEmailContext,
 } from "@/lib/email/layout";
@@ -57,14 +57,8 @@ export function interpolate(template: string, vars: TemplateVars) {
 function bodyToHtml(body: string) {
   const trimmed = body.trim();
   if (!trimmed) return "";
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
-  return trimmed
-    .split(/\n{2,}/)
-    .map((block) => {
-      const lines = escapeHtml(block).replace(/\n/g, "<br />");
-      return `<p style="margin:0 0 14px;">${lines}</p>`;
-    })
-    .join("");
+  if (looksLikeHtml(trimmed)) return sanitizeCmsHtml(trimmed);
+  return contentToSafeHtml(trimmed);
 }
 
 export function renderCustomEmail(input: {

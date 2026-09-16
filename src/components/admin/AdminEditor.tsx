@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MediaPicker, type MediaItem } from "@/components/admin/MediaPicker";
+import { RichTextEditor } from "@/components/admin/RichTextEditor";
 
 type Field = {
   name: string;
@@ -11,6 +12,7 @@ type Field = {
   type?:
     | "text"
     | "textarea"
+    | "richtext"
     | "select"
     | "number"
     | "money"
@@ -377,14 +379,13 @@ export function AdminEditor({
                         )
                       }
                     />
-                    <textarea
-                      className="admin-input"
-                      rows={4}
-                      placeholder="Answer"
+                    <RichTextEditor
                       value={item.answer}
-                      onChange={(e) =>
+                      placeholder="Answer"
+                      minHeight={120}
+                      onChange={(html) =>
                         setFaqItems((items) =>
-                          items.map((row, i) => (i === index ? { ...row, answer: e.target.value } : row)),
+                          items.map((row, i) => (i === index ? { ...row, answer: html } : row)),
                         )
                       }
                     />
@@ -521,14 +522,13 @@ export function AdminEditor({
                       )
                     }
                   />
-                  <textarea
-                    className="admin-input"
-                    rows={3}
-                    placeholder="Body"
+                  <RichTextEditor
                     value={item.body}
-                    onChange={(e) =>
+                    placeholder="Body"
+                    minHeight={100}
+                    onChange={(html) =>
                       setValueItems((items) =>
-                        items.map((row, i) => (i === index ? { ...row, body: e.target.value } : row)),
+                        items.map((row, i) => (i === index ? { ...row, body: html } : row)),
                       )
                     }
                   />
@@ -733,7 +733,14 @@ export function AdminEditor({
               {field.label}
               {field.hint ? <span className="text-xs font-normal text-white/35">{field.hint}</span> : null}
             </span>
-            {field.type === "textarea" || field.type === "json" || field.type === "url-list" ? (
+            {field.type === "richtext" ? (
+              <RichTextEditor
+                value={values[field.name] || ""}
+                disabled={field.readOnly}
+                minHeight={Math.max(120, (field.rows || 8) * 18)}
+                onChange={(html) => setValues((v) => ({ ...v, [field.name]: html }))}
+              />
+            ) : field.type === "textarea" || field.type === "json" || field.type === "url-list" ? (
               <textarea
                 rows={field.rows || (field.type === "json" ? 12 : field.type === "url-list" ? 6 : 8)}
                 className="admin-input font-mono text-xs"

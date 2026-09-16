@@ -80,7 +80,7 @@ export default async function AdminPackagesPage({
         fields={[
           { name: "slug", label: "Slug" },
           { name: "title", label: "Title" },
-          { name: "description", label: "Description", type: "textarea", rows: 4 },
+          { name: "description", label: "Description", type: "richtext", rows: 4 },
           {
             name: "priceCents",
             label: "Price (CAD, before tax)",

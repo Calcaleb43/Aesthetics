@@ -41,7 +41,7 @@ export default async function AdminCarePage({
           { name: "title", label: "Title" },
           { name: "coverImage", label: "Cover image", type: "media", hint: "Choose from Media Library" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
-          { name: "content", label: "Content", type: "textarea", rows: 20 },
+          { name: "content", label: "Content", type: "richtext", rows: 20 },
         ]}
       />
     </AdminShell>

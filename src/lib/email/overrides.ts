@@ -1,23 +1,10 @@
+import { contentToSafeHtml } from "@/lib/content/html";
 import type { Database } from "@/lib/db";
 import { interpolate, type TemplateVars } from "@/lib/email/custom";
 
 /** Convert plain-text paragraphs (or HTML) into intro HTML for the branded layout. */
 export function bodyToIntroHtml(body: string) {
-  const trimmed = body.trim();
-  if (!trimmed) return "";
-  if (/<[a-z][\s\S]*>/i.test(trimmed)) return trimmed;
-  return trimmed
-    .split(/\n{2,}/)
-    .map((block) => {
-      const lines = block
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/\n/g, "<br />");
-      return `<p style="margin:0 0 14px;">${lines}</p>`;
-    })
-    .join("");
+  return contentToSafeHtml(body);
 }
 
 /** Published EmailTemplate rows can override subject/intro for automated emails. */

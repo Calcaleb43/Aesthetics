@@ -2,9 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { HeroCarousel, type HeroSlide } from "@/components/site/HeroCarousel";
+import { RichHtml } from "@/components/site/RichHtml";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { TestimonialsSection } from "@/components/site/TestimonialsSection";
 import { bookingHref } from "@/lib/booking/money";
+import { htmlToPlainText } from "@/lib/content/html";
 import { getFeaturedServices, getPublishedTestimonials, getSettings } from "@/lib/content/queries";
 import { getGooglePlaceReviews, hasGooglePlacesConfig } from "@/lib/google/places-reviews";
 import { buildPageMetadata } from "@/lib/seo";
@@ -51,7 +53,7 @@ export default async function HomePage() {
       image: service.coverImage || images[(index + 1) % Math.max(images.length, 1)] || settings.heroImage,
       eyebrow: service.shortTitle,
       title: service.title,
-      subtitle: service.tagline || service.summary,
+      subtitle: service.tagline || htmlToPlainText(service.summary),
       ctaLabel: "Explore",
       ctaHref: `/services/${service.slug}`,
       secondaryLabel: "Book Now",
@@ -71,9 +73,15 @@ export default async function HomePage() {
               <h2 className="display mt-4 text-4xl md:text-5xl lg:text-6xl">{settings.whyHeadline}</h2>
             </ScrollReveal>
             <ScrollReveal variant="right" delay={120}>
-              <p className="max-w-2xl text-lg leading-8 text-[var(--ink-soft)] md:text-xl">{settings.homeIntro}</p>
+              <RichHtml
+                content={settings.homeIntro}
+                className="prose-block prose-block-lede max-w-2xl text-lg leading-8 text-[var(--ink-soft)] md:text-xl"
+              />
               {settings.whyBody ? (
-                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--ink-soft)]">{settings.whyBody}</p>
+                <RichHtml
+                  content={settings.whyBody}
+                  className="prose-block mt-4 max-w-2xl text-base leading-8 text-[var(--ink-soft)]"
+                />
               ) : null}
             </ScrollReveal>
           </div>
@@ -89,7 +97,10 @@ export default async function HomePage() {
                   0{index + 1}
                 </p>
                 <p className="mt-3 text-sm font-semibold tracking-[0.18em]">{value.title}</p>
-                <p className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">{value.body}</p>
+                <RichHtml
+                  content={value.body}
+                  className="prose-block prose-block-compact mt-3 text-sm leading-7 text-[var(--ink-soft)]"
+                />
               </ScrollReveal>
             ))}
           </div>
@@ -115,8 +126,8 @@ export default async function HomePage() {
               <h2 className="display mt-4 text-4xl md:text-5xl">
                 Meet <span className="gold-text">Anie</span>
               </h2>
-              <div className="mt-7 max-w-xl space-y-4 text-base leading-8 text-white/75 whitespace-pre-line md:text-lg">
-                {settings.meetAnie}
+              <div className="mt-7 max-w-xl text-base leading-8 text-white/75 md:text-lg">
+                <RichHtml content={settings.meetAnie} className="prose-block prose-block-on-dark" />
               </div>
               <Link
                 href="/about"

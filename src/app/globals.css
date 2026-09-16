@@ -250,11 +250,92 @@ body {
   font-size: 1.02rem;
 }
 
-.prose-block ul {
+.prose-block ul,
+.prose-block ol {
   margin: 0 0 1.2rem;
   padding-left: 1.2rem;
   color: var(--ink-soft);
   line-height: 1.8;
+}
+
+.prose-block ol {
+  list-style: decimal;
+}
+
+.prose-block li {
+  margin: 0.25rem 0;
+}
+
+.prose-block li > p {
+  margin: 0;
+}
+
+.prose-block a {
+  color: var(--gold-deep);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.prose-block strong,
+.prose-block b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.prose-block em,
+.prose-block i {
+  font-style: italic;
+}
+
+.prose-block u {
+  text-underline-offset: 0.15em;
+}
+
+.prose-block blockquote {
+  margin: 0 0 1.2rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--gold);
+  color: var(--ink-soft);
+}
+
+.prose-block-lede > p:first-child {
+  font-size: inherit;
+  line-height: inherit;
+  max-width: none;
+}
+
+.prose-block-compact p,
+.prose-block-compact ul,
+.prose-block-compact ol {
+  margin-bottom: 0.65rem;
+  max-width: none;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.prose-block-compact > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-block-on-dark p,
+.prose-block-on-dark li,
+.prose-block-on-dark ul,
+.prose-block-on-dark ol {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.prose-block-on-dark strong,
+.prose-block-on-dark b {
+  color: #fff;
+}
+
+.prose-block-on-dark a {
+  color: var(--accent-soft);
+}
+
+.prose-block-on-dark h2,
+.prose-block-on-dark h3 {
+  color: #fff;
 }
 
 .fade-up {
@@ -775,6 +856,57 @@ body {
 .admin-input:focus {
   border-color: rgba(198, 167, 94, 0.7);
   background: rgba(0, 0, 0, 0.5);
+}
+
+.richtext-editor:focus-within {
+  border-color: rgba(198, 167, 94, 0.7);
+}
+
+.richtext-editor-content .ProseMirror {
+  min-height: inherit;
+  color: #f5f1eb;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.richtext-editor-content .ProseMirror p {
+  margin: 0 0 0.75rem;
+}
+
+.richtext-editor-content .ProseMirror h2 {
+  margin: 0.9rem 0 0.55rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.richtext-editor-content .ProseMirror h3 {
+  margin: 0.8rem 0 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #c6a75e;
+}
+
+.richtext-editor-content .ProseMirror ul,
+.richtext-editor-content .ProseMirror ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.richtext-editor-content .ProseMirror a {
+  color: #e8d5a3;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.richtext-editor-content .ProseMirror p.is-editor-empty:first-child::before {
+  color: rgba(255, 255, 255, 0.35);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
 }
 
 .admin-btn {

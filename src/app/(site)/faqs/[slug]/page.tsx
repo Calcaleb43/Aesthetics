@@ -5,6 +5,7 @@ import { FaqAccordion } from "@/components/site/FaqAccordion";
 import { JsonLd } from "@/components/site/JsonLd";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
+import { htmlToPlainText } from "@/lib/content/html";
 import { getAllFaqs, getFaq, getSettings } from "@/lib/content/queries";
 import { buildPageMetadata, faqPageJsonLd } from "@/lib/seo";
 
@@ -18,7 +19,9 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const [faq, settings] = await Promise.all([getFaq(slug), getSettings()]);
   return buildPageMetadata({
     title: faq?.title || "FAQ",
-    description: faq?.intro || `Frequently asked questions about this treatment at ${settings.siteName}.`,
+    description:
+      htmlToPlainText(faq?.intro || "") ||
+      `Frequently asked questions about this treatment at ${settings.siteName}.`,
     path: `/faqs/${slug}`,
     image: settings.galleryImages[3] || settings.heroImage,
   });
@@ -37,7 +40,7 @@ export default async function FaqDetailPage({ params }: { params: Promise<{ slug
       <PageHero
         eyebrow="FAQ"
         title={faq.title}
-        subtitle={faq.intro}
+        subtitle={htmlToPlainText(faq.intro)}
         image={heroImage}
         imageAlt={faq.title}
         size="compact"

@@ -63,9 +63,9 @@ export default async function AdminEmailTemplatesPage({
           {
             name: "body",
             label: "Body",
-            type: "textarea",
+            type: "richtext",
             rows: 16,
-            hint: "Plain text (paragraphs) or HTML. Use {{variables}} for personalization.",
+            hint: "Supports {{name}}, {{siteName}}, and other variables",
           },
           { name: "sortOrder", label: "Sort order", type: "number" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },

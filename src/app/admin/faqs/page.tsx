@@ -39,7 +39,7 @@ export default async function AdminFaqsPage({
         fields={[
           { name: "categorySlug", label: "Category slug", hint: "Must match a category slug" },
           { name: "title", label: "Title" },
-          { name: "intro", label: "Intro", type: "textarea", rows: 3 },
+          { name: "intro", label: "Intro", type: "richtext", rows: 3 },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
           { name: "items", label: "Questions & answers", type: "faq-items" },
         ]}

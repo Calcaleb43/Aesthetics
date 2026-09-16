@@ -53,9 +53,9 @@ export default async function AdminPagesPage({
           {
             name: "content",
             label: "Content",
-            type: "textarea",
+            type: "richtext",
             rows: 18,
-            hint: "Use ## headings and blank lines between blocks",
+            hint: "Headings, lists, links, and formatting",
           },
         ]}
       />

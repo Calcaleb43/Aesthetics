@@ -92,11 +92,11 @@ const mediaFields: EditorSection["fields"] = [
 ];
 
 const copyFields: EditorSection["fields"] = [
-  { name: "homeIntro", label: "Home intro", type: "textarea", rows: 5 },
+  { name: "homeIntro", label: "Home intro", type: "richtext", rows: 5 },
   { name: "whyHeadline", label: "Why headline" },
-  { name: "whyBody", label: "Why body", type: "textarea", rows: 4 },
+  { name: "whyBody", label: "Why body", type: "richtext", rows: 4 },
   { name: "values", label: "Studio values", type: "value-list" },
-  { name: "meetAnie", label: "Meet Anie", type: "textarea", rows: 8 },
+  { name: "meetAnie", label: "Meet Anie", type: "richtext", rows: 8 },
 ];
 
 const promoFields: EditorSection["fields"] = [

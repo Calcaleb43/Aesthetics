@@ -2,6 +2,7 @@ import { bookingHref } from "@/lib/booking/money";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
+import { RichHtml } from "@/components/site/RichHtml";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { getPublishedServices, getSettings } from "@/lib/content/queries";
 import { buildPageMetadata } from "@/lib/seo";
@@ -47,7 +48,10 @@ export default async function ServicesIndexPage() {
                     <p className="text-[0.68rem] tracking-[0.2em] text-[var(--gold-deep)]">{service.shortTitle}</p>
                     <h2 className="display mt-2 text-3xl md:text-4xl">{service.title}</h2>
                     <p className="mt-2 font-medium">{service.tagline}</p>
-                    <p className="mt-3 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]">{service.summary}</p>
+                    <RichHtml
+                      content={service.summary}
+                      className="prose-block prose-block-compact mt-3 max-w-2xl text-sm leading-7 text-[var(--ink-soft)]"
+                    />
                   </div>
                   <span className="arrow text-xs uppercase tracking-[0.18em]">Explore →</span>
                 </Link>

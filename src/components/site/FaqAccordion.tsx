@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { RichHtml } from "@/components/site/RichHtml";
 
 export function FaqAccordion({
   items,
@@ -34,9 +35,10 @@ export function FaqAccordion({
               }`}
             >
               <div className="overflow-hidden">
-                <div className="pb-6 text-[0.98rem] leading-7 text-[var(--ink-soft)] whitespace-pre-wrap">
-                  {item.answer}
-                </div>
+                <RichHtml
+                  content={item.answer}
+                  className="prose-block prose-block-compact pb-6 text-[0.98rem] leading-7 text-[var(--ink-soft)]"
+                />
               </div>
             </div>
           </div>

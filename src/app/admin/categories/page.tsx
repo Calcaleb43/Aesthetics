@@ -50,13 +50,13 @@ export default async function AdminCategoriesPage({
           { name: "title", label: "Title" },
           { name: "shortTitle", label: "Short title" },
           { name: "tagline", label: "Tagline" },
-          { name: "summary", label: "Summary", type: "textarea", rows: 4 },
+          { name: "summary", label: "Summary", type: "richtext", rows: 4 },
           { name: "coverImage", label: "Cover image", type: "media", hint: "Choose from Media Library" },
           { name: "bookingUrl", label: "External booking URL (optional fallback)" },
           { name: "sortOrder", label: "Sort order", type: "number" },
           { name: "featured", label: "Featured on homepage", type: "boolean" },
           { name: "status", label: "Status", type: "select", options: ["draft", "published"] },
-          { name: "content", label: "Content", type: "textarea", rows: 18 },
+          { name: "content", label: "Content", type: "richtext", rows: 18 },
         ]}
       />
     </AdminShell>

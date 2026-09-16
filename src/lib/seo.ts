@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { siteUrl } from "@/lib/booking/stripe";
+import { htmlToPlainText } from "@/lib/content/html";
 import type { SiteSettings } from "@/lib/content/seed";
 
 export function absoluteUrl(path = "/") {
@@ -15,7 +16,7 @@ export function defaultOgImage(settings?: Pick<SiteSettings, "heroImage"> | null
 }
 
 export function truncateMeta(text: string, max = 160) {
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = htmlToPlainText(text).replace(/\s+/g, " ").trim();
   if (clean.length <= max) return clean;
   return `${clean.slice(0, max - 1).trimEnd()}…`;
 }
@@ -95,7 +96,7 @@ export function faqPageJsonLd(items: { question: string; answer: string }[]) {
       name: item.question,
       acceptedAnswer: {
         "@type": "Answer",
-        text: item.answer,
+        text: htmlToPlainText(item.answer),
       },
     })),
   };

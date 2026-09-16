@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
 import { PageHero } from "@/components/site/PageHero";
+import { RichHtml } from "@/components/site/RichHtml";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { bookingHref, formatCad } from "@/lib/booking/money";
+import { htmlToPlainText } from "@/lib/content/html";
 import {
   getPublishedBookableServices,
   getPublishedServices,
@@ -23,7 +25,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const [service, settings] = await Promise.all([getService(slug), getSettings()]);
   return buildPageMetadata({
     title: service?.title || "Service",
-    description: service?.summary || service?.tagline || settings.tagline,
+    description: htmlToPlainText(service?.summary || service?.tagline || settings.tagline),
     path: `/services/${slug}`,
     image: service?.coverImage || settings.heroImage,
   });
@@ -63,7 +65,10 @@ export default async function ServiceDetailPage({
 
       <section className="section">
         <ScrollReveal className="mx-auto max-w-3xl">
-          <p className="mb-10 text-lg leading-8 text-[var(--ink-soft)]">{service.summary}</p>
+          <RichHtml
+            content={service.summary}
+            className="prose-block prose-block-lede mb-10 text-lg leading-8 text-[var(--ink-soft)]"
+          />
           {bookable.length ? (
             <div className="mb-10 border-y border-[var(--line)] py-8">
               <p className="eyebrow">Available services</p>

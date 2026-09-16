@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { RichHtml } from "@/components/site/RichHtml";
 import { formatCad } from "@/lib/booking/money";
 
 type PackageCard = {
@@ -66,7 +67,10 @@ export function PackageBuyCard({
           </p>
           <h2 className="display mt-2 text-3xl md:text-4xl">{pkg.title}</h2>
           {pkg.description ? (
-            <p className="mt-3 text-sm leading-7 text-[var(--ink-soft)]">{pkg.description}</p>
+            <RichHtml
+              content={pkg.description}
+              className="prose-block prose-block-compact mt-3 text-sm leading-7 text-[var(--ink-soft)]"
+            />
           ) : null}
           <p className="mt-4 text-sm font-medium">
             {formatCad(pkg.priceCents)}

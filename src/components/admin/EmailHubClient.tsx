@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { RichTextEditor } from "@/components/admin/RichTextEditor";
 
 type SystemTemplate = {
   key: string;
@@ -421,11 +422,10 @@ export function EmailHubClient() {
 
           <label className="grid gap-1 text-sm text-white/70">
             Body override (optional)
-            <textarea
-              className="admin-input"
-              rows={10}
+            <RichTextEditor
               value={composeBody}
-              onChange={(e) => setComposeBody(e.target.value)}
+              onChange={setComposeBody}
+              minHeight={180}
               placeholder="Leave blank to use template body. Supports {{name}}, {{siteName}}, …"
             />
           </label>
@@ -549,12 +549,7 @@ export function EmailHubClient() {
 
           <label className="grid gap-1 text-sm text-white/70">
             Body override (optional)
-            <textarea
-              className="admin-input"
-              rows={10}
-              value={bulkBody}
-              onChange={(e) => setBulkBody(e.target.value)}
-            />
+            <RichTextEditor value={bulkBody} onChange={setBulkBody} minHeight={180} />
           </label>
 
           <button type="submit" className="admin-btn w-fit" disabled={!configured || bulkCount === 0}>

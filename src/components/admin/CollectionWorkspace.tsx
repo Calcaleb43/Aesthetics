@@ -10,6 +10,7 @@ type Field = {
   type?:
     | "text"
     | "textarea"
+    | "richtext"
     | "select"
     | "number"
     | "money"
