@@ -1,4 +1,4 @@
-import DOMPurify from "isomorphic-dompurify";
+import sanitizeHtml from "sanitize-html";
 import { renderContent } from "@/lib/content/render";
 
 const ALLOWED_TAGS = [
@@ -21,7 +21,28 @@ const ALLOWED_TAGS = [
   "span",
 ];
 
-const ALLOWED_ATTR = ["href", "target", "rel", "class"];
+/** Shared CMS HTML sanitizer — no jsdom (breaks on Vercel/Node ESM). */
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ALLOWED_TAGS,
+  allowedAttributes: {
+    a: ["href", "target", "rel"],
+    span: ["class"],
+    p: ["class"],
+    h2: ["class"],
+    h3: ["class"],
+    ul: ["class"],
+    ol: ["class"],
+    li: ["class"],
+    blockquote: ["class"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+  allowProtocolRelative: false,
+  transformTags: {
+    a: sanitizeHtml.simpleTransform("a", {
+      rel: "noopener noreferrer",
+    }),
+  },
+};
 
 export function looksLikeHtml(content: string) {
   return /<[a-z][\s\S]*>/i.test(content.trim());
@@ -67,11 +88,7 @@ export function toEditorHtml(content: string) {
 
 export function sanitizeCmsHtml(html: string) {
   if (!html?.trim()) return "";
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS,
-    ALLOWED_ATTR,
-    ALLOW_DATA_ATTR: false,
-  }).trim();
+  return sanitizeHtml(html, SANITIZE_OPTIONS).trim();
 }
 
 /** Normalize editor output before saving (empty doc → ""). */
