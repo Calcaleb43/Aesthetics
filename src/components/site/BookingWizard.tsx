@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { addDays, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
-import { formatCad, multiChargeBreakdown } from "@/lib/booking/money";
+import { formatCad, multiChargeBreakdown, taxOn } from "@/lib/booking/money";
+import { applyDiscountToCharge } from "@/lib/booking/coupons";
 
 type BookableService = {
   id: string;
@@ -96,6 +97,13 @@ export function BookingWizard({
   const [slotStart, setSlotStart] = useState<string>("");
   const [slotStaffId, setSlotStaffId] = useState<string | null>(null);
   const [promoCode, setPromoCode] = useState("");
+  const [promoApplied, setPromoApplied] = useState<{
+    code: string;
+    discountCents: number;
+    discountLabel: string;
+    label: string;
+  } | null>(null);
+  const [promoPending, setPromoPending] = useState(false);
   const [clientPackageId, setClientPackageId] = useState<string | null>(null);
   const [clientPackages, setClientPackages] = useState<
     { id: string; title: string; sessionsRemaining: number; serviceIds: string[] }[]
@@ -226,19 +234,28 @@ export function BookingWizard({
     const lines = [...serviceLines, ...selectedAddons];
     if (!lines.length) {
       return {
-        deposit: null as ReturnType<typeof multiChargeBreakdown> | null,
-        full: null as ReturnType<typeof multiChargeBreakdown> | null,
+        deposit: null as ReturnType<typeof applyDiscountToCharge> | null,
+        full: null as ReturnType<typeof applyDiscountToCharge> | null,
         canChooseFull: false,
       };
     }
-    const deposit = multiChargeBreakdown(lines, hstRateBps);
-    const full = multiChargeBreakdown(lines, hstRateBps, { preferFullPayment: true });
+    const discountCents = promoApplied?.discountCents || 0;
+    const deposit = applyDiscountToCharge({
+      ...multiChargeBreakdown(lines, hstRateBps),
+      discountCents,
+      hstRateBps,
+    });
+    const full = applyDiscountToCharge({
+      ...multiChargeBreakdown(lines, hstRateBps, { preferFullPayment: true }),
+      discountCents,
+      hstRateBps,
+    });
     const canChooseFull =
       deposit.paymentMode === "deposit" &&
       full.totalCents > deposit.totalCents &&
       full.paymentMode === "full";
     return { deposit, full, canChooseFull };
-  }, [serviceLines, selectedAddons, hstRateBps]);
+  }, [serviceLines, selectedAddons, hstRateBps, promoApplied]);
 
   const totals = useMemo(() => {
     const lines = [...serviceLines, ...selectedAddons];
@@ -251,26 +268,90 @@ export function BookingWizard({
         baseCents: 0,
         taxCents: 0,
         totalCents: 0,
+        discountCents: 0,
+        discountedPriceCents: 0,
+        remainingBaseCents: 0,
+        remainingTaxCents: 0,
         titles: "",
       };
     }
     const preferFull = chargeOptions.canChooseFull && payInFull;
     const charge = multiChargeBreakdown(lines, hstRateBps, { preferFullPayment: preferFull });
+    const withCoupon = applyDiscountToCharge({
+      ...charge,
+      discountCents: promoApplied?.discountCents || 0,
+      hstRateBps,
+    });
+    const remainingTaxCents =
+      withCoupon.remainingBaseCents > 0 ? taxOn(withCoupon.remainingBaseCents, hstRateBps) : 0;
     return {
       durationMinutes: lines.reduce((sum, s) => sum + s.durationMinutes, 0),
-      priceCents: charge.priceCents,
-      depositCents: charge.depositCents,
-      paymentMode: charge.paymentMode,
-      baseCents: charge.baseCents,
-      taxCents: charge.taxCents,
-      totalCents: charge.totalCents,
+      priceCents: withCoupon.priceCents,
+      depositCents: withCoupon.depositCents,
+      paymentMode: withCoupon.paymentMode,
+      baseCents: withCoupon.baseCents,
+      taxCents: withCoupon.taxCents,
+      totalCents: withCoupon.totalCents,
+      discountCents: withCoupon.discountCents,
+      discountedPriceCents: withCoupon.discountedPriceCents,
+      remainingBaseCents: withCoupon.remainingBaseCents,
+      remainingTaxCents,
       titles: lines.map((s) => s.title).join(", "),
     };
-  }, [serviceLines, selectedAddons, hstRateBps, chargeOptions.canChooseFull, payInFull]);
+  }, [serviceLines, selectedAddons, hstRateBps, chargeOptions.canChooseFull, payInFull, promoApplied]);
 
   useEffect(() => {
     if (!chargeOptions.canChooseFull) setPayInFull(false);
   }, [chargeOptions.canChooseFull]);
+
+  useEffect(() => {
+    // Clear applied coupon when cart changes so discount is re-validated
+    setPromoApplied(null);
+  }, [serviceLines, selectedAddons]);
+
+  async function applyPromo() {
+    setError("");
+    if (!promoCode.trim()) {
+      setPromoApplied(null);
+      return;
+    }
+    if (!totals.priceCents) {
+      setError("Select services before applying a coupon");
+      return;
+    }
+    setPromoPending(true);
+    try {
+      const res = await fetch("/api/booking/coupon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: promoCode.trim(), subtotalCents: totals.priceCents }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPromoApplied(null);
+        setError(data.error || "Invalid coupon");
+        return;
+      }
+      setPromoApplied({
+        code: data.code,
+        discountCents: data.discountCents,
+        discountLabel: data.discountLabel,
+        label: data.label,
+      });
+      setPromoCode(data.code);
+    } catch {
+      setError("Could not apply coupon");
+      setPromoApplied(null);
+    } finally {
+      setPromoPending(false);
+    }
+  }
+
+  function clearPromo() {
+    setPromoApplied(null);
+    setPromoCode("");
+    setError("");
+  }
 
   const appointmentLabel = useMemo(() => {
     if (!slotStart) return "";
@@ -614,7 +695,7 @@ export function BookingWizard({
             notes: notes || null,
             policyAccepted: true,
             payInFull: chargeOptions.canChooseFull && payInFull,
-            promoCode: promoCode.trim() || undefined,
+            promoCode: promoApplied?.code || undefined,
             clientPackageId: clientPackageId || undefined,
           }),
         });
@@ -1246,20 +1327,59 @@ export function BookingWizard({
               <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Promo &amp; packages</h4>
               <label className="mt-3 grid gap-1 text-sm">
                 Coupon code
-                <input
-                  className="admin-input !bg-white !text-black"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                  placeholder="Optional"
-                />
+                <div className="flex flex-wrap gap-2">
+                  <input
+                    className="admin-input min-w-0 flex-1 !bg-white !text-black"
+                    value={promoCode}
+                    onChange={(e) => {
+                      setPromoCode(e.target.value.toUpperCase());
+                      if (promoApplied) setPromoApplied(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void applyPromo();
+                      }
+                    }}
+                    placeholder="Optional"
+                    disabled={Boolean(clientPackageId)}
+                  />
+                  {promoApplied ? (
+                    <button type="button" className="btn" onClick={clearPromo}>
+                      Remove
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={promoPending || !promoCode.trim() || Boolean(clientPackageId)}
+                      onClick={() => void applyPromo()}
+                    >
+                      {promoPending ? "Applying…" : "Apply"}
+                    </button>
+                  )}
+                </div>
               </label>
+              {promoApplied ? (
+                <p className="mt-2 text-sm text-[var(--ink-soft)]">
+                  Applied: {promoApplied.label}
+                  {promoApplied.discountLabel ? ` (−${promoApplied.discountLabel})` : ""}
+                </p>
+              ) : null}
+              {clientPackageId ? (
+                <p className="mt-2 text-xs text-[var(--ink-soft)]">
+                  Package credit selected — coupon codes are not used with packages.
+                </p>
+              ) : null}
               {clientPackages.length ? (
                 <div className="mt-4">
                   <p className="text-xs uppercase tracking-[0.12em] text-[var(--ink-soft)]">Use package credit</p>
                   <div className="mt-2 grid gap-2">
                     <button
                       type="button"
-                      onClick={() => setClientPackageId(null)}
+                      onClick={() => {
+                        setClientPackageId(null);
+                      }}
                       className={`rounded-xl border px-4 py-3 text-left text-sm ${
                         !clientPackageId ? "border-black bg-black text-white" : "border-black/15"
                       }`}
@@ -1270,7 +1390,11 @@ export function BookingWizard({
                       <button
                         key={p.id}
                         type="button"
-                        onClick={() => setClientPackageId(p.id)}
+                        onClick={() => {
+                          setClientPackageId(p.id);
+                          setPromoApplied(null);
+                          setPromoCode("");
+                        }}
                         className={`rounded-xl border px-4 py-3 text-left text-sm ${
                           clientPackageId === p.id ? "border-black bg-black text-white" : "border-black/15"
                         }`}
@@ -1343,9 +1467,22 @@ export function BookingWizard({
             <section className="rounded-2xl border border-black/10 bg-[var(--bg-deep)] p-5">
               <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Payment summary</h4>
               <div className="mt-3 space-y-1 text-sm">
-                <p>
-                  Services &amp; add-ons total: <strong>{formatCad(totals.priceCents)}</strong>
+                <p className="flex justify-between gap-3">
+                  <span>Services &amp; add-ons</span>
+                  <strong>{formatCad(totals.priceCents)}</strong>
                 </p>
+                {promoApplied && totals.discountCents > 0 ? (
+                  <>
+                    <p className="flex justify-between gap-3 text-[var(--ink-soft)]">
+                      <span>Coupon ({promoApplied.code})</span>
+                      <span>−{formatCad(totals.discountCents)}</span>
+                    </p>
+                    <p className="flex justify-between gap-3">
+                      <span>Discounted total</span>
+                      <strong>{formatCad(totals.discountedPriceCents)}</strong>
+                    </p>
+                  </>
+                ) : null}
                 {chargeOptions.canChooseFull && chargeOptions.deposit && chargeOptions.full ? (
                   <div className="mt-4 grid gap-2">
                     <p className="text-xs uppercase tracking-[0.12em] text-[var(--ink-soft)]">
@@ -1361,8 +1498,7 @@ export function BookingWizard({
                       <span className="block font-medium">Deposit only</span>
                       <span className={`mt-0.5 block text-xs ${!payInFull ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
                         Pay {formatCad(chargeOptions.deposit.totalCents)} now (deposit + HST). Remaining{" "}
-                        {formatCad(Math.max(0, totals.priceCents - (chargeOptions.deposit.depositCents || 0)))} + tax
-                        due at appointment.
+                        {formatCad(chargeOptions.deposit.remainingBaseCents)} + tax due at appointment.
                       </span>
                     </button>
                     <button
@@ -1374,27 +1510,40 @@ export function BookingWizard({
                     >
                       <span className="block font-medium">Pay in full</span>
                       <span className={`mt-0.5 block text-xs ${payInFull ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                        Pay {formatCad(chargeOptions.full.totalCents)} now (full amount + HST).
+                        Pay {formatCad(chargeOptions.full.totalCents)} now (
+                        {promoApplied && totals.discountCents > 0 ? "discounted total" : "full amount"} + HST).
                       </span>
                     </button>
                   </div>
                 ) : totals.paymentMode === "deposit" ? (
                   <>
-                    <p>
-                      Due now (deposit + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                    <p className="mt-3 flex justify-between gap-3">
+                      <span>Due now (deposit + HST)</span>
+                      <strong>{formatCad(totals.totalCents)}</strong>
                     </p>
-                    <p className="text-[var(--ink-soft)]">
-                      Remaining at appointment:{" "}
-                      {formatCad(Math.max(0, totals.priceCents - (totals.depositCents || 0)))} + tax
+                    <p className="flex justify-between gap-3 text-[var(--ink-soft)]">
+                      <span>Remaining at appointment</span>
+                      <span>
+                        {formatCad(totals.remainingBaseCents)}
+                        {totals.remainingTaxCents > 0 ? ` + ${formatCad(totals.remainingTaxCents)} tax` : " + tax"}
+                      </span>
                     </p>
                   </>
                 ) : totals.paymentMode === "full" ? (
-                  <p>
-                    Due now (full + HST): <strong>{formatCad(totals.totalCents)}</strong>
+                  <p className="mt-3 flex justify-between gap-3">
+                    <span>Due now (full + HST)</span>
+                    <strong>{formatCad(totals.totalCents)}</strong>
                   </p>
                 ) : (
-                  <p>No online payment required for this booking.</p>
+                  <p className="mt-3">No online payment required for this booking.</p>
                 )}
+                {(totals.paymentMode === "deposit" ||
+                  (chargeOptions.canChooseFull && !payInFull && chargeOptions.deposit)) &&
+                totals.discountCents > 0 ? (
+                  <p className="mt-3 text-xs text-[var(--ink-soft)]">
+                    Coupon is applied to the full amount. Your deposit is taken from the discounted total.
+                  </p>
+                ) : null}
               </div>
             </section>
           </div>
@@ -1415,10 +1564,24 @@ export function BookingWizard({
           </p>
           <p className="mt-3 text-sm">{appointmentLabel}</p>
           <div className="mt-6 space-y-1 text-sm">
-            {totals.paymentMode === "deposit" ? (
-              <p>
-                Charging now: <strong>{formatCad(totals.totalCents)}</strong> (deposit + HST)
+            {promoApplied && totals.discountCents > 0 ? (
+              <p className="text-[var(--ink-soft)]">
+                Coupon {promoApplied.code}: −{formatCad(totals.discountCents)} (from{" "}
+                {formatCad(totals.priceCents)} → {formatCad(totals.discountedPriceCents)})
               </p>
+            ) : null}
+            {totals.paymentMode === "deposit" ? (
+              <>
+                <p>
+                  Charging now: <strong>{formatCad(totals.totalCents)}</strong> (deposit + HST)
+                </p>
+                {totals.remainingBaseCents > 0 ? (
+                  <p className="text-[var(--ink-soft)]">
+                    Remaining at appointment: {formatCad(totals.remainingBaseCents)}
+                    {totals.remainingTaxCents > 0 ? ` + ${formatCad(totals.remainingTaxCents)} tax` : " + tax"}
+                  </p>
+                ) : null}
+              </>
             ) : totals.paymentMode === "full" ? (
               <p>
                 Charging now: <strong>{formatCad(totals.totalCents)}</strong> (full + HST)

@@ -12,6 +12,9 @@ export const EMAIL_TEMPLATE_KEYS = [
   "appointment_booked",
   "appointment_booked_staff",
   "appointment_cancelled",
+  "appointment_cancelled_staff",
+  "appointment_rescheduled",
+  "appointment_rescheduled_staff",
   "appointment_reminder",
   "appointment_thank_you",
   "inquiry_received",
@@ -45,6 +48,21 @@ export const EMAIL_TEMPLATE_META: Record<
     label: "Appointment cancelled",
     description: "Sent to the client when a booking is cancelled.",
     audience: "client",
+  },
+  appointment_cancelled_staff: {
+    label: "Cancellation alert (studio)",
+    description: "Notifies studio/staff when a booking is cancelled.",
+    audience: "staff",
+  },
+  appointment_rescheduled: {
+    label: "Appointment rescheduled",
+    description: "Sent to the client when a booking time changes.",
+    audience: "client",
+  },
+  appointment_rescheduled_staff: {
+    label: "Reschedule alert (studio)",
+    description: "Notifies studio/staff when a booking is rescheduled.",
+    audience: "staff",
   },
   appointment_reminder: {
     label: "Appointment reminder",
@@ -80,15 +98,24 @@ export type AppointmentEmailVars = {
   clientPhone?: string | null;
   serviceTitle: string;
   whenLabel: string;
+  /** Previous time, for reschedule notices */
+  previousWhenLabel?: string | null;
   endsLabel?: string | null;
   staffName?: string | null;
   amountChargedCents?: number;
+  /** Remaining studio balance after a deposit (incl. tax estimate) */
+  balanceDueCents?: number;
+  paymentMode?: string | null;
+  /** Stripe Checkout URL to pay remaining balance */
+  balancePaymentUrl?: string | null;
   categorySlug?: string | null;
   notes?: string | null;
   /** Optional CMS override for subject / intro (from Email templates). */
   copyOverride?: { subject?: string; introHtml?: string } | null;
   /** Stripe Checkout URL when payment is still owed. */
   paymentUrl?: string | null;
+  /** Client self-serve cancel / reschedule link */
+  manageUrl?: string | null;
 };
 
 export type InquiryEmailVars = {
@@ -112,42 +139,73 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
     typeof vars.amountChargedCents === "number" && vars.amountChargedCents > 0
       ? formatCad(vars.amountChargedCents)
       : null;
+  const balanceDue =
+    typeof vars.balanceDueCents === "number" && vars.balanceDueCents > 0
+      ? formatCad(vars.balanceDueCents)
+      : null;
+  const isDeposit = vars.paymentMode === "deposit" && Boolean(balanceDue);
   const needsPayment = Boolean(vars.paymentUrl);
 
   return {
     subject: needsPayment
       ? `Complete payment — ${vars.serviceTitle}`
-      : `Booking confirmed — ${vars.serviceTitle}`,
+      : isDeposit
+        ? `Deposit received — ${vars.serviceTitle}`
+        : `Booking confirmed — ${vars.serviceTitle}`,
     preheader: needsPayment
       ? `Pay to confirm ${vars.serviceTitle} on ${vars.whenLabel}`
-      : `${vars.serviceTitle} on ${vars.whenLabel}`,
+      : isDeposit
+        ? `Deposit paid · balance due ${balanceDue}`
+        : `${vars.serviceTitle} on ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
-      eyebrow: needsPayment ? "Payment" : "Confirmed",
-      title: needsPayment ? "Complete your booking" : "You're booked",
+      eyebrow: needsPayment ? "Payment" : isDeposit ? "Deposit" : "Confirmed",
+      title: needsPayment ? "Complete your booking" : isDeposit ? "Deposit received" : "You're booked",
       introHtml: needsPayment
         ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">Your appointment time is held — finish payment to confirm.</p>`
-        : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        : isDeposit
+          ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your deposit is confirmed. The remaining balance is due before or at your visit.</p>`
+          : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">Your appointment is confirmed. We look forward to seeing you at the studio.</p>`,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
         ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
-        ...(paid ? [{ label: needsPayment ? "Amount due" : "Paid", value: paid }] : []),
+        ...(paid
+          ? [{ label: needsPayment ? "Amount due" : isDeposit ? "Deposit paid" : "Paid", value: paid }]
+          : []),
+        ...(balanceDue && !needsPayment ? [{ label: "Balance due", value: balanceDue }] : []),
       ],
       bodyHtml: needsPayment
         ? `<p style="margin:0;">Use the button below to pay securely. Your hold may expire if payment is not completed.</p>`
-        : `<p style="margin:0;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>`,
+        : `<p style="margin:0 0 12px;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>
+        ${
+          balanceDue
+            ? `<p style="margin:0 0 12px;">Balance of <strong>${escapeHtml(balanceDue)}</strong> can be paid online below or by cash / card at the studio.</p>`
+            : ""
+        }
+        ${
+          vars.manageUrl
+            ? `<p style="margin:0;">Need to change plans? Use <strong>Cancel / reschedule</strong> below — available until <strong>48 hours</strong> before your appointment.</p>`
+            : ""
+        }`,
       ctaHtml: needsPayment
         ? [
             emailButton("Complete payment", vars.paymentUrl!),
+            ...(vars.manageUrl ? [emailButton("Cancel / reschedule", vars.manageUrl, "ghost")] : []),
             emailButton("Policies", `${base}/policies`, "ghost"),
           ].join("")
         : [
-            emailButton("Pre & aftercare", careHref),
+            ...(vars.balancePaymentUrl
+              ? [emailButton("Pay remaining balance", vars.balancePaymentUrl)]
+              : []),
+            ...(vars.manageUrl
+              ? [emailButton("Cancel / reschedule", vars.manageUrl, vars.balancePaymentUrl ? "ghost" : "gold")]
+              : []),
+            emailButton("Pre & aftercare", careHref, "ghost"),
             emailButton("Policies", `${base}/policies`, "ghost"),
-            emailButton("Studio site", base, "ghost"),
           ].join(""),
     }),
   };
@@ -170,6 +228,12 @@ export function renderAppointmentBookedStaff(vars: AppointmentEmailVars): Render
         { label: "Client", value: vars.clientName },
         ...(vars.clientEmail ? [{ label: "Email", value: vars.clientEmail }] : []),
         ...(vars.clientPhone ? [{ label: "Phone", value: vars.clientPhone }] : []),
+        ...(typeof vars.amountChargedCents === "number" && vars.amountChargedCents > 0
+          ? [{ label: "Charged online", value: formatCad(vars.amountChargedCents) }]
+          : []),
+        ...(typeof vars.balanceDueCents === "number" && vars.balanceDueCents > 0
+          ? [{ label: "Balance due", value: formatCad(vars.balanceDueCents) }]
+          : []),
         ...(vars.notes ? [{ label: "Notes", value: vars.notes }] : []),
       ],
       ctaHtml: emailButton("Open calendar", `${base}/admin/appointments`),
@@ -201,6 +265,79 @@ export function renderAppointmentCancelled(vars: AppointmentEmailVars): Rendered
   };
 }
 
+export function renderAppointmentCancelledStaff(vars: AppointmentEmailVars): RenderedEmail {
+  const studio = studioOf(vars);
+  const base = siteUrl();
+  return {
+    subject: `Cancelled — ${vars.clientName} · ${vars.serviceTitle}`,
+    preheader: `${vars.whenLabel}`,
+    html: renderEmailLayout({
+      studio,
+      eyebrow: "Studio alert",
+      title: "Appointment cancelled",
+      introHtml: `<p style="margin:0;">A booking was cancelled.</p>`,
+      detailRows: [
+        { label: "Service", value: vars.serviceTitle },
+        { label: "Was scheduled", value: vars.whenLabel },
+        { label: "Client", value: vars.clientName },
+        ...(vars.clientEmail ? [{ label: "Email", value: vars.clientEmail }] : []),
+        ...(vars.clientPhone ? [{ label: "Phone", value: vars.clientPhone }] : []),
+      ],
+      ctaHtml: emailButton("Open calendar", `${base}/admin/appointments`),
+    }),
+  };
+}
+
+export function renderAppointmentRescheduled(vars: AppointmentEmailVars): RenderedEmail {
+  const studio = studioOf(vars);
+  const base = siteUrl();
+  return {
+    subject: `Rescheduled — ${vars.serviceTitle}`,
+    preheader: `New time: ${vars.whenLabel}`,
+    html: renderEmailLayout({
+      studio,
+      eyebrow: "Updated",
+      title: "Appointment rescheduled",
+      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment has been moved to a new time.</p>`,
+      detailRows: [
+        { label: "Service", value: vars.serviceTitle },
+        ...(vars.previousWhenLabel ? [{ label: "Previously", value: vars.previousWhenLabel }] : []),
+        { label: "New time", value: vars.whenLabel },
+        ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
+      ],
+      ctaHtml: [
+        ...(vars.manageUrl ? [emailButton("Cancel / reschedule", vars.manageUrl)] : []),
+        emailButton("Policies", `${base}/policies`, "ghost"),
+      ].join(""),
+    }),
+  };
+}
+
+export function renderAppointmentRescheduledStaff(vars: AppointmentEmailVars): RenderedEmail {
+  const studio = studioOf(vars);
+  const base = siteUrl();
+  return {
+    subject: `Rescheduled — ${vars.clientName} · ${vars.serviceTitle}`,
+    preheader: `${vars.previousWhenLabel || ""} → ${vars.whenLabel}`,
+    html: renderEmailLayout({
+      studio,
+      eyebrow: "Studio alert",
+      title: "Appointment rescheduled",
+      introHtml: `<p style="margin:0;">A booking was moved to a new time.</p>`,
+      detailRows: [
+        { label: "Service", value: vars.serviceTitle },
+        ...(vars.previousWhenLabel ? [{ label: "Previously", value: vars.previousWhenLabel }] : []),
+        { label: "New time", value: vars.whenLabel },
+        { label: "Client", value: vars.clientName },
+        ...(vars.clientEmail ? [{ label: "Email", value: vars.clientEmail }] : []),
+        ...(vars.clientPhone ? [{ label: "Phone", value: vars.clientPhone }] : []),
+      ],
+      ctaHtml: emailButton("Open calendar", `${base}/admin/appointments`),
+    }),
+  };
+}
+
 export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
@@ -209,7 +346,11 @@ export function renderAppointmentReminder(vars: AppointmentEmailVars): RenderedE
         <p style="margin:0;">This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.</p>`;
   const payCta = vars.paymentUrl
     ? [emailButton("Complete payment", vars.paymentUrl), emailButton("Pre-care guide", careHref, "ghost")]
-    : [emailButton("Pre-care guide", careHref), emailButton("Policies", `${base}/policies`, "ghost")];
+    : [
+        emailButton("Pre-care guide", careHref),
+        ...(vars.manageUrl ? [emailButton("Cancel / reschedule", vars.manageUrl, "ghost")] : []),
+        emailButton("Policies", `${base}/policies`, "ghost"),
+      ];
   return {
     subject: vars.copyOverride?.subject || `Reminder — ${vars.serviceTitle} tomorrow`,
     preheader: `${vars.serviceTitle} on ${vars.whenLabel}`,
@@ -336,6 +477,12 @@ export function renderEmailTemplate(
       return renderAppointmentBookedStaff(vars as AppointmentEmailVars);
     case "appointment_cancelled":
       return renderAppointmentCancelled(vars as AppointmentEmailVars);
+    case "appointment_cancelled_staff":
+      return renderAppointmentCancelledStaff(vars as AppointmentEmailVars);
+    case "appointment_rescheduled":
+      return renderAppointmentRescheduled(vars as AppointmentEmailVars);
+    case "appointment_rescheduled_staff":
+      return renderAppointmentRescheduledStaff(vars as AppointmentEmailVars);
     case "appointment_reminder":
       return renderAppointmentReminder(vars as AppointmentEmailVars);
     case "appointment_thank_you":
@@ -360,6 +507,8 @@ export function sampleVarsForTemplate(key: EmailTemplateKey): AppointmentEmailVa
     whenLabel: "Friday, March 20, 2026 at 2:00 p.m. EDT",
     staffName: "Anie",
     amountChargedCents: 11300,
+    balanceDueCents: 28250,
+    paymentMode: "deposit",
     categorySlug: "ombre-brows",
     notes: "First visit",
   };

@@ -107,6 +107,7 @@ export async function createBookingCheckoutSession(input: CheckoutSessionInput):
         addonIds: input.addonIds.join(","),
         paymentMode: input.paymentMode,
         paymentProvider: "stripe",
+        purpose: "booking",
       },
       success_url: `${siteUrl()}/book-now/success?appointment=${input.appointmentId}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl()}/book-now/cancelled?appointment=${input.appointmentId}`,
@@ -117,4 +118,48 @@ export async function createBookingCheckoutSession(input: CheckoutSessionInput):
   }
 
   throw new Error(`Unsupported payment provider: ${input.provider}`);
+}
+
+/** Stripe Checkout for remaining balance after a deposit. */
+export async function createBalanceCheckoutSession(input: {
+  appointmentId: string;
+  clientEmail: string;
+  serviceLabel: string;
+  balanceDueCents: number;
+}): Promise<{ checkoutUrl: string; externalId: string }> {
+  if (!hasStripe()) {
+    throw new Error("Stripe is not configured");
+  }
+  if (input.balanceDueCents <= 0) {
+    throw new Error("No balance due");
+  }
+
+  const session = await getStripe().checkout.sessions.create({
+    mode: "payment",
+    customer_email: input.clientEmail,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "cad",
+          unit_amount: input.balanceDueCents,
+          product_data: {
+            name: `Remaining balance — ${input.serviceLabel}`.slice(0, 120),
+            description: "Balance due after deposit (incl. HST)",
+          },
+        },
+      },
+    ],
+    metadata: {
+      appointmentId: input.appointmentId,
+      paymentProvider: "stripe",
+      purpose: "balance",
+      balanceDueCents: String(input.balanceDueCents),
+    },
+    success_url: `${siteUrl()}/book-now/success?appointment=${input.appointmentId}&balance=1&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${siteUrl()}/book-now/manage`,
+  });
+
+  if (!session.url || !session.id) throw new Error("Stripe did not return a checkout URL");
+  return { checkoutUrl: session.url, externalId: session.id };
 }

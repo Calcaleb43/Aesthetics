@@ -242,7 +242,8 @@ export async function POST(req: Request) {
   let discountCents = 0;
   let couponCode: string | null = null;
   if (parsed.data.promoCode?.trim()) {
-    const validated = await validateCoupon(db, parsed.data.promoCode, rawCharge.baseCents);
+    // Coupon always validates against the full service total, not the deposit.
+    const validated = await validateCoupon(db, parsed.data.promoCode, rawCharge.priceCents);
     if (!validated.ok) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }

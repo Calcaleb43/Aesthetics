@@ -54,6 +54,8 @@ type Appointment = {
   paymentMode: string;
   amountLabel: string;
   priceLabel: string;
+  balanceDueCents?: number;
+  balanceDueLabel?: string | null;
   serviceId: string;
   serviceIds?: string[];
   serviceTitle: string;
@@ -481,6 +483,32 @@ export function AdminCalendar({
     load();
   }
 
+  async function collectBalance(method: "stripe" | "cash") {
+    if (!canWrite || !selected) return;
+    setSaving(true);
+    setError("");
+    const res = await fetch("/api/admin/appointments/collect-balance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: selected.id, method }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setSaving(false);
+    if (!res.ok) {
+      setError(data.error || "Could not collect balance");
+      return;
+    }
+    if (method === "stripe" && data.checkoutUrl) {
+      await navigator.clipboard?.writeText(data.checkoutUrl).catch(() => undefined);
+      window.open(data.checkoutUrl, "_blank", "noopener,noreferrer");
+      alert(`Stripe balance link ready (also copied):\n${data.checkoutUrl}`);
+    } else {
+      alert(`Recorded ${data.collectedLabel || "payment"}. Remaining: ${data.remainingLabel || "$0.00"}`);
+    }
+    closeDrawer();
+    load();
+  }
+
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
     await patchAppointment({
@@ -864,6 +892,12 @@ export function AdminCalendar({
                   <p className="uppercase tracking-[0.12em] text-[0.65rem] text-[#c6a75e]">
                     {selected.status.replace("_", " ")}
                   </p>
+                  <p className="text-xs text-white/50">
+                    Charged {selected.amountLabel} · service {selected.priceLabel}
+                    {selected.balanceDueLabel ? (
+                      <span className="text-[#c6a75e]"> · balance due {selected.balanceDueLabel}</span>
+                    ) : null}
+                  </p>
                   {selected.seriesId ? (
                     <p className="text-[0.65rem] uppercase tracking-[0.12em] text-white/40">
                       Part of a recurring series
@@ -1116,24 +1150,51 @@ export function AdminCalendar({
               )}
 
               {drawer === "edit" && selected && canWrite ? (
-                <div className="mt-6 flex flex-wrap gap-2 border-t border-white/10 pt-4">
-                  {STATUS_ACTIONS.filter((a) => {
-                    if (a.status === selected.status) return false;
-                    if (a.status === "confirmed") {
-                      return selected.status === "pending_payment" || selected.status === "expired";
-                    }
-                    return true;
-                  }).map((a) => (
-                    <button
-                      key={a.status}
-                      type="button"
-                      disabled={saving}
-                      className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
-                      onClick={() => patchAppointment({ status: a.status })}
-                    >
-                      {a.label}
-                    </button>
-                  ))}
+                <div className="mt-6 space-y-3 border-t border-white/10 pt-4">
+                  {(selected.balanceDueCents || 0) > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[0.65rem] uppercase tracking-[0.14em] text-white/45">
+                        Collect balance {selected.balanceDueLabel}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-full border border-[#c6a75e]/50 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-[#c6a75e] transition hover:bg-[#c6a75e]/10"
+                          onClick={() => void collectBalance("stripe")}
+                        >
+                          Stripe link
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
+                          onClick={() => void collectBalance("cash")}
+                        >
+                          Cash / studio paid
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2">
+                    {STATUS_ACTIONS.filter((a) => {
+                      if (a.status === selected.status) return false;
+                      if (a.status === "confirmed") {
+                        return selected.status === "pending_payment" || selected.status === "expired";
+                      }
+                      return true;
+                    }).map((a) => (
+                      <button
+                        key={a.status}
+                        type="button"
+                        disabled={saving}
+                        className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
+                        onClick={() => patchAppointment({ status: a.status })}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 

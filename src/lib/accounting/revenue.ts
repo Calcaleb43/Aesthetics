@@ -1,6 +1,6 @@
 import { addDays, endOfDay, format, startOfDay, startOfMonth, subDays } from "date-fns";
 import type { Database } from "@/lib/db";
-import { formatCad, zonedParts } from "@/lib/booking/money";
+import { estimateBalanceDueCents, formatCad, zonedParts } from "@/lib/booking/money";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
 
 export type RevenueBasis = "cash" | "accrual";
@@ -126,21 +126,8 @@ export function resolveRevenueRange(
   }
 }
 
-/** Estimated unpaid remainder on a deposit booking. */
-export function estimateBalanceDueCents(row: {
-  status: string;
-  paymentMode: string;
-  priceCents: number;
-  amountChargedCents: number;
-  taxCents: number;
-  discountCents: number;
-}) {
-  if (row.status === "cancelled" || row.status === "expired" || row.status === "no_show") return 0;
-  if (row.paymentMode !== "deposit") return 0;
-  const chargedBase = Math.max(0, row.amountChargedCents - row.taxCents);
-  const serviceNet = Math.max(0, row.priceCents - (row.discountCents || 0));
-  return Math.max(0, serviceNet - chargedBase);
-}
+/** @deprecated use estimateBalanceDueCents from @/lib/booking/money */
+export { estimateBalanceDueCents };
 
 function bump(
   map: Map<string, RevenueBreakdownItem>,
@@ -165,6 +152,9 @@ export async function buildRevenueReport(
   },
 ): Promise<RevenueReport> {
   const { from, to, basis, timezone, staffId } = input;
+
+  const settings = await db.siteSettings.findUnique({ where: { id: 1 }, select: { hstRateBps: true } });
+  const hstRateBps = settings?.hstRateBps ?? 1300;
 
   const paidStatuses = ["confirmed", "completed"] as const;
 
@@ -261,7 +251,7 @@ export async function buildRevenueReport(
   for (const row of appointments) {
     const title = appointmentDisplayTitle(row);
     const occurredAt = basis === "accrual" ? row.startsAt : row.updatedAt;
-    const balanceDue = estimateBalanceDueCents(row);
+    const balanceDue = estimateBalanceDueCents(row, hstRateBps);
     outstandingCents += balanceDue;
 
     if (row.status === "pending_payment") {

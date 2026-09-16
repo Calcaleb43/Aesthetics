@@ -87,21 +87,51 @@ export async function POST(req: Request) {
           ? session.payment_intent
           : session.payment_intent?.id || null;
 
-      const result = await db.appointment.updateMany({
-        where: {
-          id: appointmentId,
-          status: { in: ["pending_payment", "expired"] },
-        },
-        data: {
-          status: "confirmed",
-          stripeSessionId: session.id,
-          stripePaymentIntentId: paymentIntent,
-          amountChargedCents: session.amount_total ?? undefined,
-        },
-      });
+      if (meta.purpose === "balance") {
+        const paid = session.amount_total ?? Number(meta.balanceDueCents || 0);
+        const existing = await db.appointment.findUnique({ where: { id: appointmentId } });
+        if (existing && paid > 0) {
+          const nextCharged = existing.amountChargedCents + paid;
+          const settings = await db.siteSettings.findUnique({ where: { id: 1 }, select: { hstRateBps: true } });
+          const { estimateBalanceDueCents } = await import("@/lib/booking/money");
+          const remaining = estimateBalanceDueCents(
+            { ...existing, amountChargedCents: nextCharged },
+            settings?.hstRateBps ?? 1300,
+          );
+          await db.appointment.update({
+            where: { id: appointmentId },
+            data: {
+              amountChargedCents: nextCharged,
+              stripePaymentIntentId: paymentIntent || existing.stripePaymentIntentId,
+              ...(remaining <= 0 ? { paymentMode: "full" } : {}),
+            },
+          });
+          await notifyAdmins(db, {
+            type: "balance_paid",
+            title: "Balance paid online",
+            body: `${existing.clientName} paid remaining balance online.`,
+            href: "/admin/appointments",
+            includeStaffId: existing.staffId,
+            metadata: { appointmentId, amountCents: paid },
+          });
+        }
+      } else {
+        const result = await db.appointment.updateMany({
+          where: {
+            id: appointmentId,
+            status: { in: ["pending_payment", "expired"] },
+          },
+          data: {
+            status: "confirmed",
+            stripeSessionId: session.id,
+            stripePaymentIntentId: paymentIntent,
+            amountChargedCents: session.amount_total ?? undefined,
+          },
+        });
 
-      if (result.count > 0) {
-        await announceAppointmentBooked(db, appointmentId);
+        if (result.count > 0) {
+          await announceAppointmentBooked(db, appointmentId);
+        }
       }
     }
   }

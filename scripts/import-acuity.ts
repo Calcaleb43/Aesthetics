@@ -6,13 +6,14 @@ import { getPrisma } from "../src/lib/db";
 
 const TZ = "America/Toronto";
 
-type Args = { clients?: string; schedule?: string };
+type Args = { clients?: string; schedule?: string; replace?: boolean };
 
 function parseArgs(argv: string[]): Args {
   const out: Args = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--clients") out.clients = argv[++i];
     if (argv[i] === "--schedule") out.schedule = argv[++i];
+    if (argv[i] === "--replace") out.replace = true;
   }
   return out;
 }
@@ -157,10 +158,26 @@ function mergeNotes(existing: string, incoming: string) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const clientsPath = args.clients || "/home/spec/Downloads/list 3.csv";
-  const schedulePath = args.schedule || "/home/spec/Downloads/schedule2026-09-09.csv.html";
+  const clientsPath = args.clients || "/home/spec/Downloads/list 4.csv";
+  const schedulePath = args.schedule || "/home/spec/Downloads/schedule2026-09-16.csv 3.html";
 
   const db = getPrisma();
+
+  if (args.replace) {
+    console.log("Replacing existing appointments and clients…");
+    // Clear appointment package links, then wipe schedule + CRM imports.
+    await db.appointment.updateMany({ data: { clientPackageId: null } });
+    const deletedAppts = await db.appointment.deleteMany({});
+    const deletedPackages = await db.clientPackage.deleteMany({});
+    const deletedClients = await db.client.deleteMany({});
+    console.log(
+      JSON.stringify({
+        deletedAppointments: deletedAppts.count,
+        deletedClientPackages: deletedPackages.count,
+        deletedClients: deletedClients.count,
+      }),
+    );
+  }
 
   const owner =
     (await db.admin.findFirst({ where: { role: "owner", active: true }, orderBy: { createdAt: "asc" } })) ||
@@ -216,8 +233,21 @@ async function main() {
     relax_column_count: true,
   }) as Record<string, string>[];
 
+  type ClientRow = { id: string; email: string; name: string; phone: string | null; notes: string; banned: boolean };
+  const clientByEmail = new Map<string, ClientRow>();
+  for (const c of await db.client.findMany()) {
+    clientByEmail.set(c.email, c);
+  }
+
   let clientsCreated = 0;
   let clientsUpdated = 0;
+  const clientsToCreate: {
+    email: string;
+    name: string;
+    phone: string | null;
+    notes: string;
+    banned: boolean;
+  }[] = [];
 
   for (const row of clientRows) {
     const name = `${row["First Name"] || ""} ${row["Last Name"] || ""}`.replace(/\s+/g, " ").trim() || "Client";
@@ -225,13 +255,11 @@ async function main() {
     const email = normalizeEmail(row["Email"], name, phone);
     const notes = (row["Notes"] || "").trim();
     const banned = (row["Banned"] || "").trim().toUpperCase() === "Y";
-
-    const existing = await db.client.findUnique({ where: { email } });
+    const existing = clientByEmail.get(email);
     if (!existing) {
-      await db.client.create({
-        data: { email, name: name.slice(0, 160), phone, notes, banned },
-      });
-      clientsCreated++;
+      if (!clientsToCreate.some((c) => c.email === email)) {
+        clientsToCreate.push({ email, name: name.slice(0, 160), phone, notes, banned });
+      }
     } else {
       await db.client.update({
         where: { id: existing.id },
@@ -246,6 +274,17 @@ async function main() {
     }
   }
 
+  for (let i = 0; i < clientsToCreate.length; i += 100) {
+    const chunk = clientsToCreate.slice(i, i + 100);
+    await db.client.createMany({ data: chunk, skipDuplicates: true });
+    clientsCreated += chunk.length;
+  }
+
+  clientByEmail.clear();
+  for (const c of await db.client.findMany()) {
+    clientByEmail.set(c.email, c);
+  }
+
   const scheduleCsv = readFileSync(schedulePath, "utf8");
   const scheduleRows = parse(scheduleCsv, {
     columns: true,
@@ -256,12 +295,54 @@ async function main() {
 
   let apptsCreated = 0;
   let apptsUpdated = 0;
+  let apptsSkipped = 0;
   const unmatchedTypes = new Map<string, number>();
+  const existingExternal = new Set(
+    (
+      await db.appointment.findMany({
+        where: { externalId: { not: null } },
+        select: { externalId: true },
+      })
+    )
+      .map((a) => a.externalId)
+      .filter(Boolean) as string[],
+  );
+
+  const apptsToCreate: {
+    categoryId: string;
+    serviceId: string;
+    staffId: string | null;
+    clientId: string;
+    externalId: string;
+    serviceLabel: string;
+    startsAt: Date;
+    endsAt: Date;
+    clientName: string;
+    clientEmail: string;
+    clientPhone: string | null;
+    status: string;
+    priceCents: number;
+    depositCents: null;
+    taxCents: number;
+    amountChargedCents: number;
+    paymentMode: string;
+    notes: string;
+    policyAcceptedAt: Date;
+  }[] = [];
+
+  const pendingClientCreates = new Map<
+    string,
+    { email: string; name: string; phone: string | null; notes: string; banned: boolean }
+  >();
 
   for (const row of scheduleRows) {
     const acuityId = (row["Appointment ID"] || "").trim();
     if (!acuityId) continue;
     const externalId = `acuity:${acuityId}`;
+    if (existingExternal.has(externalId)) {
+      apptsSkipped++;
+      continue;
+    }
 
     const first = (row["First Name"] || "").trim();
     const last = (row["Last Name"] || "").trim();
@@ -271,12 +352,14 @@ async function main() {
     const type = (row["Type"] || "").trim() || "Imported appointment";
     const notes = (row["Notes"] || "").trim();
 
-    let client = await db.client.findUnique({ where: { email } });
-    if (!client) {
-      client = await db.client.create({
-        data: { email, name: name.slice(0, 160), phone, notes: "" },
+    if (!clientByEmail.has(email) && !pendingClientCreates.has(email)) {
+      pendingClientCreates.set(email, {
+        email,
+        name: name.slice(0, 160),
+        phone,
+        notes: "",
+        banned: false,
       });
-      clientsCreated++;
     }
 
     const mappedSlug = mapServiceSlug(type);
@@ -297,11 +380,11 @@ async function main() {
     const status = mapStatus(row);
     const noteBody = notes ? `[Acuity: ${type}]\n${notes}` : `[Acuity: ${type}]`;
 
-    const data = {
+    apptsToCreate.push({
       categoryId: service.categoryId || importedCategory.id,
       serviceId: service.id,
       staffId: owner?.id || null,
-      clientId: client.id,
+      clientId: "", // filled after client create
       externalId,
       serviceLabel: type.slice(0, 255),
       startsAt,
@@ -317,15 +400,38 @@ async function main() {
       paymentMode: "imported",
       notes: noteBody.slice(0, 8000),
       policyAcceptedAt: startsAt,
-    };
+    });
+    existingExternal.add(externalId);
+  }
 
-    const existing = await db.appointment.findUnique({ where: { externalId } });
-    if (existing) {
-      await db.appointment.update({ where: { id: existing.id }, data });
-      apptsUpdated++;
-    } else {
-      await db.appointment.create({ data });
-      apptsCreated++;
+  if (pendingClientCreates.size) {
+    const pending = [...pendingClientCreates.values()];
+    for (let i = 0; i < pending.length; i += 100) {
+      const chunk = pending.slice(i, i + 100);
+      await db.client.createMany({ data: chunk, skipDuplicates: true });
+      clientsCreated += chunk.length;
+    }
+    for (const c of await db.client.findMany()) {
+      clientByEmail.set(c.email, c);
+    }
+  }
+
+  for (const appt of apptsToCreate) {
+    const client = clientByEmail.get(appt.clientEmail);
+    if (!client) {
+      console.warn("skip missing client", appt.externalId, appt.clientEmail);
+      continue;
+    }
+    appt.clientId = client.id;
+  }
+
+  const ready = apptsToCreate.filter((a) => a.clientId);
+  for (let i = 0; i < ready.length; i += 50) {
+    const chunk = ready.slice(i, i + 50);
+    await db.appointment.createMany({ data: chunk, skipDuplicates: true });
+    apptsCreated += chunk.length;
+    if ((i / 50) % 5 === 0) {
+      console.log(`appointments… ${Math.min(i + chunk.length, ready.length)}/${ready.length}`);
     }
   }
 
@@ -336,6 +442,7 @@ async function main() {
         clientsUpdated,
         apptsCreated,
         apptsUpdated,
+        apptsSkipped,
         unmatchedTop: [...unmatchedTypes.entries()]
           .sort((a, b) => b[1] - a[1])
           .slice(0, 25)

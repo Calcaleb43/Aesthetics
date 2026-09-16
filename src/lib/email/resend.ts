@@ -6,7 +6,10 @@ import {
   renderAppointmentBooked,
   renderAppointmentBookedStaff,
   renderAppointmentCancelled,
+  renderAppointmentCancelledStaff,
   renderAppointmentReminder,
+  renderAppointmentRescheduled,
+  renderAppointmentRescheduledStaff,
   renderAppointmentThankYou,
   renderInquiryAlert,
   renderInquiryReceived,
@@ -79,6 +82,49 @@ export async function emailAppointmentCancelled(
     subject: rendered.subject,
     html: rendered.html,
     templateKey: "appointment_cancelled",
+    appointmentId: input.appointmentId,
+  });
+}
+
+export async function emailAppointmentCancelledStaff(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+  },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = renderAppointmentCancelledStaff({ ...input, studio });
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    toName: input.staffName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: "appointment_cancelled_staff",
+    appointmentId: input.appointmentId,
+  });
+}
+
+export async function emailAppointmentRescheduled(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+    isStaff?: boolean;
+  },
+) {
+  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const rendered = input.isStaff
+    ? renderAppointmentRescheduledStaff({ ...input, studio })
+    : renderAppointmentRescheduled({ ...input, studio });
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    toName: input.isStaff ? input.staffName : input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: input.isStaff ? "appointment_rescheduled_staff" : "appointment_rescheduled",
     appointmentId: input.appointmentId,
   });
 }

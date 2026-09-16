@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
+import { appointmentManageUrl } from "@/lib/booking/manage-token";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
 import { buildPageMetadata } from "@/lib/seo";
@@ -19,7 +20,7 @@ export default async function BookSuccessPage({
 }) {
   const { appointment: id } = await searchParams;
   const settings = await getSettings();
-  let summary: { title: string; startsAt: string; email: string } | null = null;
+  let summary: { title: string; startsAt: string; email: string; manageUrl: string } | null = null;
 
   if (id && hasDatabase()) {
     try {
@@ -37,6 +38,7 @@ export default async function BookSuccessPage({
           title: appointmentDisplayTitle(row),
           startsAt: row.startsAt.toISOString(),
           email: row.clientEmail,
+          manageUrl: await appointmentManageUrl(row.id),
         };
       }
     } catch {
@@ -69,6 +71,9 @@ export default async function BookSuccessPage({
             <p className="text-[var(--ink-soft)]">
               Confirmation details sent toward {summary.email} via Stripe receipt when paid.
             </p>
+            <Link href={summary.manageUrl} className="btn btn-gold mt-6 inline-flex">
+              Cancel / reschedule
+            </Link>
           </div>
         ) : (
           <p className="text-sm text-[var(--ink-soft)]">

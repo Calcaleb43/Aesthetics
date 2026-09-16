@@ -23,6 +23,24 @@ export function taxOn(amountCents: number, hstRateBps: number) {
   return Math.round((amountCents * hstRateBps) / 10000);
 }
 
+/** Remaining amount (incl. HST) still owed on a deposit booking. */
+export function estimateBalanceDueCents(
+  row: {
+    status: string;
+    paymentMode: string;
+    priceCents: number;
+    amountChargedCents: number;
+    discountCents?: number;
+  },
+  hstRateBps = 1300,
+) {
+  if (row.status === "cancelled" || row.status === "expired" || row.status === "no_show") return 0;
+  if (row.paymentMode !== "deposit") return 0;
+  const serviceNet = Math.max(0, row.priceCents - (row.discountCents || 0));
+  const totalOwedCents = serviceNet + taxOn(serviceNet, hstRateBps);
+  return Math.max(0, totalOwedCents - Math.max(0, row.amountChargedCents));
+}
+
 export function chargeBreakdown(input: {
   priceCents: number;
   depositCents: number | null;

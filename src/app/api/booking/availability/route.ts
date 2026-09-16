@@ -111,6 +111,7 @@ export async function GET(req: Request) {
   const staffIdParam = url.searchParams.get("staffId");
   const datesOnly = url.searchParams.get("datesOnly") === "1";
   const monthParam = url.searchParams.get("month"); // YYYY-MM
+  const excludeAppointmentId = url.searchParams.get("excludeAppointmentId");
 
   if (!items?.length) {
     return NextResponse.json({ error: "serviceIds or items required" }, { status: 400 });
@@ -219,6 +220,7 @@ export async function GET(req: Request) {
           status: { in: [...holds] },
           startsAt: { lt: to },
           endsAt: { gt: from },
+          ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
         },
         select: { startsAt: true, endsAt: true },
       });
@@ -253,6 +255,7 @@ export async function GET(req: Request) {
               status: { in: [...holds] },
               startsAt: { lt: to },
               endsAt: { gt: from },
+              ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
             },
             select: { startsAt: true, endsAt: true },
           }),

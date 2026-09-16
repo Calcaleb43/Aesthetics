@@ -7,7 +7,7 @@ import { canManageAllAppointments, canWriteAppointments } from "@/lib/auth/roles
 import { upsertClient } from "@/lib/booking/clients";
 import { PENDING_HOLD_MINUTES, activeHoldStatuses } from "@/lib/booking/availability";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
-import { asWeeklyHours, formatCad } from "@/lib/booking/money";
+import { asWeeklyHours, estimateBalanceDueCents, formatCad } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
 import { staffForAllServices, normalizeBookingItems, resolveBookingItems } from "@/lib/booking/service";
 import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
@@ -15,6 +15,7 @@ import type { Database } from "@/lib/db";
 import {
   announceAppointmentBooked,
   announceAppointmentCancelled,
+  announceAppointmentRescheduled,
 } from "@/lib/booking/announce";
 
 async function assertStaffForServices(db: Database, serviceIds: string[], staffId: string | null) {
@@ -139,6 +140,7 @@ export async function GET(req: Request) {
     appointments: rows.map((row) => {
       const title = appointmentDisplayTitle(row);
       const lineIds = row.lines.map((l) => l.serviceId);
+      const balanceDueCents = estimateBalanceDueCents(row, settings?.hstRateBps ?? 1300);
       return {
         id: row.id,
         status: row.status,
@@ -154,6 +156,8 @@ export async function GET(req: Request) {
         amountChargedCents: row.amountChargedCents,
         amountLabel: formatCad(row.amountChargedCents),
         priceLabel: formatCad(row.priceCents),
+        balanceDueCents,
+        balanceDueLabel: balanceDueCents > 0 ? formatCad(balanceDueCents) : null,
         categoryId: row.categoryId,
         categoryTitle: row.category.title,
         serviceId: row.serviceId || lineIds[0] || "",
@@ -313,6 +317,11 @@ export async function PATCH(req: Request) {
     data.clientId = parsed.data.clientId;
   }
 
+  const previousStartsAt = existing.startsAt;
+  const timeChanged =
+    Boolean(parsed.data.startsAt) &&
+    new Date(parsed.data.startsAt!).getTime() !== existing.startsAt.getTime();
+
   const updated = await gate.db.appointment.update({
     where: { id: parsed.data.id },
     data,
@@ -330,6 +339,15 @@ export async function PATCH(req: Request) {
 
   if (parsed.data.status === "confirmed" && existing.status !== "confirmed") {
     await announceAppointmentBooked(gate.db, updated.id);
+  }
+
+  if (
+    timeChanged &&
+    existing.status !== "cancelled" &&
+    updated.status !== "cancelled" &&
+    parsed.data.status !== "cancelled"
+  ) {
+    await announceAppointmentRescheduled(gate.db, updated.id, previousStartsAt);
   }
 
   return NextResponse.json({ ok: true });

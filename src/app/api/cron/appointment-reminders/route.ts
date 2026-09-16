@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { addHours, subHours } from "date-fns";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
+import { appointmentManageUrl } from "@/lib/booking/manage-token";
 import { emailAppointmentReminder, emailAppointmentThankYou } from "@/lib/email/resend";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { notifyAdmins } from "@/lib/notifications";
@@ -71,6 +72,7 @@ async function run(req: Request) {
       timeStyle: "short",
     }).format(row.startsAt);
     const serviceTitle = appointmentDisplayTitle(row);
+    const manageUrl = await appointmentManageUrl(row.id);
 
     await emailAppointmentReminder({
       db,
@@ -81,6 +83,7 @@ async function run(req: Request) {
       whenLabel,
       staffName: row.staff?.name,
       categorySlug: row.category.slug,
+      manageUrl,
       paymentUrl:
         row.status === "pending_payment" && row.stripeCheckoutUrl ? row.stripeCheckoutUrl : null,
     });
