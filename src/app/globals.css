@@ -859,6 +859,31 @@ body {
   background: rgba(0, 0, 0, 0.5);
 }
 
+/* Public booking wizard — visible borders on light backgrounds */
+.booking-input {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1.5px solid rgba(15, 15, 15, 0.28);
+  background: #fff;
+  padding: 0.75rem 0.9rem;
+  color: #0f0f0f;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.booking-input:hover {
+  border-color: rgba(15, 15, 15, 0.45);
+}
+
+.booking-input:focus {
+  border-color: #0f0f0f;
+  box-shadow: 0 0 0 3px rgba(15, 15, 15, 0.08);
+}
+
+.booking-input:invalid:not(:placeholder-shown):not(:focus) {
+  border-color: rgba(180, 60, 60, 0.7);
+}
+
 .richtext-editor:focus-within {
   border-color: rgba(198, 167, 94, 0.7);
 }

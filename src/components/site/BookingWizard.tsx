@@ -384,8 +384,13 @@ export function BookingWizard({
     setStepIndex(step + 1);
   }
 
-  function canLeaveStep(name: StepName) {
-    if (name === "Services") {
+  function isFullLegalName(value: string) {
+    const parts = value.trim().split(/\s+/).filter(Boolean);
+    return parts.length >= 2;
+  }
+
+  function canLeaveStep(leaving: StepName) {
+    if (leaving === "Services") {
       if (!selectedServiceIds.length) {
         setError("Select at least one service.");
         return false;
@@ -395,17 +400,29 @@ export function BookingWizard({
         return false;
       }
     }
-    if (name === "Date" && !selectedDay) {
+    if (leaving === "Date" && !selectedDay) {
       setError("Pick a date to continue.");
       return false;
     }
-    if (name === "Time" && !slotStart) {
+    if (leaving === "Time" && !slotStart) {
       setError("Pick a time to continue.");
       return false;
     }
-    if (name === "Details") {
+    if (leaving === "Details") {
       if (!name.trim() || !email.trim() || !phone.trim()) {
         setError("Full name, email, and phone are required.");
+        return false;
+      }
+      if (!isFullLegalName(name)) {
+        setError("Enter your full name (first and last name).");
+        return false;
+      }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        setError("Enter a valid email address.");
+        return false;
+      }
+      if (phone.replace(/\D/g, "").length < 7) {
+        setError("Enter a valid phone number.");
         return false;
       }
       if (!policyAccepted) {
@@ -413,7 +430,7 @@ export function BookingWizard({
         return false;
       }
     }
-    if ((name === "Review" || name === "Pay") && (!selectionComplete || !slotStart)) {
+    if ((leaving === "Review" || leaving === "Pay") && (!selectionComplete || !slotStart)) {
       setError("Complete earlier steps first.");
       return false;
     }
@@ -436,7 +453,7 @@ export function BookingWizard({
       if (!slotStart) return false;
     }
     if (target === "Review" || target === "Pay") {
-      if (!name.trim() || !email.trim() || !phone.trim() || !policyAccepted) return false;
+      if (!isFullLegalName(name) || !email.trim() || !phone.trim() || !policyAccepted) return false;
     }
     return true;
   }
@@ -1205,63 +1222,82 @@ export function BookingWizard({
 
       {stepName === "Details" && (
         <div className="grid max-w-xl gap-4">
-          <label className="grid gap-1 text-sm">
-            Full name
+          <label className="grid gap-1.5 text-sm">
+            <span>
+              Full name <span className="text-red-700">*</span>
+            </span>
             <input
-              className="admin-input !bg-white !text-black"
+              className="booking-input"
               value={name}
               onChange={(e) => {
                 setNameDirty(true);
                 setName(e.target.value);
               }}
+              placeholder="First and last name"
+              autoComplete="name"
               required
+              aria-required="true"
             />
+            <span className="text-xs text-[var(--ink-soft)]">Enter first and last name (not a single name).</span>
           </label>
-          <label className="grid gap-1 text-sm">
-            Email
+          <label className="grid gap-1.5 text-sm">
+            <span>
+              Email <span className="text-red-700">*</span>
+            </span>
             <input
               type="email"
-              className="admin-input !bg-white !text-black"
+              className="booking-input"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
               required
+              aria-required="true"
             />
           </label>
-          <label className="grid gap-1 text-sm">
-            Phone
+          <label className="grid gap-1.5 text-sm">
+            <span>
+              Phone <span className="text-red-700">*</span>
+            </span>
             <input
               type="tel"
-              className="admin-input !bg-white !text-black"
+              className="booking-input"
               value={phone}
               onChange={(e) => {
                 setPhoneDirty(true);
                 setPhone(e.target.value);
               }}
+              placeholder="(416) 555-0100"
               required
+              aria-required="true"
               autoComplete="tel"
             />
           </label>
-          <label className="grid gap-1 text-sm">
-            Notes (optional)
+          <label className="grid gap-1.5 text-sm">
+            Notes <span className="text-[var(--ink-soft)]">(optional)</span>
             <textarea
-              className="admin-input !bg-white !text-black"
+              className="booking-input"
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything we should know?"
             />
           </label>
           <label className="flex items-start gap-3 text-sm leading-6">
             <input
               type="checkbox"
-              className="mt-1"
+              className="mt-1 h-4 w-4 accent-black"
               checked={policyAccepted}
               onChange={(e) => setPolicyAccepted(e.target.checked)}
+              required
+              aria-required="true"
             />
             <span>
               I have read and agree to the studio{" "}
               <Link href="/policies" className="underline" target="_blank">
                 Policies &amp; Client Agreement
               </Link>
+              <span className="text-red-700"> *</span>
               . Booking fees/deposits are non-refundable and applied toward the service; any remaining balance is due at
               the appointment.
             </span>
@@ -1329,7 +1365,7 @@ export function BookingWizard({
                 Coupon code
                 <div className="flex flex-wrap gap-2">
                   <input
-                    className="admin-input min-w-0 flex-1 !bg-white !text-black"
+                    className="booking-input min-w-0 flex-1"
                     value={promoCode}
                     onChange={(e) => {
                       setPromoCode(e.target.value.toUpperCase());

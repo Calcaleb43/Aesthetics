@@ -38,7 +38,13 @@ const schema = z
     addonIds: z.array(z.string().uuid()).optional(),
     startsAt: z.string().datetime(),
     staffId: z.string().uuid().nullable().optional(),
-    clientName: z.string().min(1).max(160),
+    clientName: z
+      .string()
+      .min(1)
+      .max(160)
+      .refine((v) => v.trim().split(/\s+/).filter(Boolean).length >= 2, {
+        message: "Full name required",
+      }),
     clientEmail: z.string().email().max(255),
     clientPhone: z.string().min(1).max(64),
     notes: z.string().max(2000).optional().nullable(),
@@ -282,9 +288,12 @@ export async function POST(req: Request) {
     charge.totalCents <= 0 ||
     Boolean(clientPackageId);
 
-  const clientName = parsed.data.clientName.trim();
+  const clientName = parsed.data.clientName.trim().replace(/\s+/g, " ");
   const clientEmail = parsed.data.clientEmail.trim().toLowerCase();
   const clientPhone = parsed.data.clientPhone.trim();
+  if (clientName.split(/\s+/).filter(Boolean).length < 2) {
+    return NextResponse.json({ error: "Enter your full name (first and last name)" }, { status: 400 });
+  }
   if (!clientPhone) {
     return NextResponse.json({ error: "Phone number is required" }, { status: 400 });
   }
