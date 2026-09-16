@@ -70,6 +70,11 @@ export async function DELETE(req: Request) {
   const parsed = z.object({ slug: z.string().min(1) }).safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
 
+  const { SYSTEM_EMAIL_TEMPLATE_SLUGS } = await import("@/lib/email/custom");
+  if (SYSTEM_EMAIL_TEMPLATE_SLUGS.has(parsed.data.slug)) {
+    return NextResponse.json({ error: "System templates cannot be deleted" }, { status: 400 });
+  }
+
   await gate.db.emailTemplate.delete({ where: { slug: parsed.data.slug } });
   revalidateSite();
   return NextResponse.json({ ok: true });

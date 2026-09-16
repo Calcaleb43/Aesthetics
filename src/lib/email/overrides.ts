@@ -7,6 +7,22 @@ export function bodyToIntroHtml(body: string) {
   return contentToSafeHtml(body);
 }
 
+/** Build a subject/intro override from draft (or saved) copy + sample/live vars. */
+export function draftCopyOverride(
+  subject: string | null | undefined,
+  body: string | null | undefined,
+  vars: TemplateVars,
+): { subject?: string; introHtml?: string } | null {
+  const subj = interpolate(subject || "", vars).trim();
+  const introHtml =
+    body != null && String(body).trim() ? bodyToIntroHtml(interpolate(String(body), vars)) : "";
+  if (!subj && !introHtml) return null;
+  return {
+    subject: subj || undefined,
+    introHtml: introHtml || undefined,
+  };
+}
+
 /** Published EmailTemplate rows can override subject/intro for automated emails. */
 export async function loadTemplateCopyOverride(
   db: Database | null | undefined,
@@ -17,13 +33,7 @@ export async function loadTemplateCopyOverride(
   try {
     const row = await db.emailTemplate.findUnique({ where: { slug } });
     if (!row || row.status !== "published") return null;
-    const subject = interpolate(row.subject, vars).trim();
-    const introHtml = bodyToIntroHtml(interpolate(row.body, vars));
-    if (!subject && !introHtml) return null;
-    return {
-      subject: subject || undefined,
-      introHtml: introHtml || undefined,
-    };
+    return draftCopyOverride(row.subject, row.body, vars);
   } catch {
     return null;
   }

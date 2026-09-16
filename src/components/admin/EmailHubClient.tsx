@@ -60,6 +60,10 @@ export function EmailHubClient() {
   const [selectedSystemKey, setSelectedSystemKey] = useState("appointment_booked");
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewSubject, setPreviewSubject] = useState("");
+  const [editSubject, setEditSubject] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [editDirty, setEditDirty] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   const [composeClientQuery, setComposeClientQuery] = useState("");
   const [composeHits, setComposeHits] = useState<ClientHit[]>([]);
@@ -113,8 +117,30 @@ export function EmailHubClient() {
     });
   }
 
-  async function loadSystemPreview(key: string) {
+  async function loadSystemPreview(key: string, draft?: { subject?: string; body?: string }) {
     setSelectedSystemKey(key);
+    setError("");
+    if (draft) {
+      const res = await fetch("/api/admin/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "previewSystem",
+          key,
+          subject: draft.subject,
+          body: draft.body,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Preview failed");
+        return;
+      }
+      setPreviewSubject(data.subject || "");
+      setPreviewHtml(data.html || "");
+      return;
+    }
+
     const res = await fetch(`/api/admin/email?preview=${encodeURIComponent(key)}`);
     const data = await res.json();
     if (!res.ok) {
@@ -123,6 +149,41 @@ export function EmailHubClient() {
     }
     setPreviewSubject(data.subject || "");
     setPreviewHtml(data.html || "");
+    setEditSubject(data.editable?.subject || "");
+    setEditBody(data.editable?.body || "");
+    setEditDirty(false);
+  }
+
+  async function saveSystemTemplate() {
+    setSavingTemplate(true);
+    setError("");
+    setStatus("");
+    try {
+      const res = await fetch("/api/admin/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "saveSystem",
+          key: selectedSystemKey,
+          subject: editSubject,
+          body: editBody,
+          status: "published",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Save failed");
+        return;
+      }
+      setPreviewSubject(data.subject || "");
+      setPreviewHtml(data.html || "");
+      setEditSubject(data.editable?.subject || editSubject);
+      setEditBody(data.editable?.body || editBody);
+      setEditDirty(false);
+      setStatus("Template saved — live emails will use this copy");
+    } finally {
+      setSavingTemplate(false);
+    }
   }
 
   async function searchClients(q: string, setter: (hits: ClientHit[]) => void) {
@@ -154,6 +215,15 @@ export function EmailHubClient() {
     if (systemTemplates.length) void loadSystemPreview(selectedSystemKey || systemTemplates[0].key);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [systemTemplates]);
+
+  useEffect(() => {
+    if (tab !== "system" || !selectedSystemKey || !editDirty) return;
+    const t = window.setTimeout(() => {
+      void loadSystemPreview(selectedSystemKey, { subject: editSubject, body: editBody });
+    }, 350);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, selectedSystemKey, editSubject, editBody, editDirty]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void searchClients(composeClientQuery, setComposeHits), 250);
@@ -559,7 +629,7 @@ export function EmailHubClient() {
       ) : null}
 
       {tab === "system" ? (
-        <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
+        <div className="grid gap-6 xl:grid-cols-[15rem_minmax(18rem,22rem)_minmax(0,1fr)]">
           <div className="admin-card p-4">
             <p className="mb-3 text-[0.62rem] uppercase tracking-[0.18em] text-white/35">
               System (transactional)
@@ -584,28 +654,72 @@ export function EmailHubClient() {
                 </li>
               ))}
             </ul>
+            <p className="mt-4 text-[0.7rem] leading-5 text-white/40">
+              Edit subject &amp; intro for every auto email. Detail rows and buttons stay fixed.
+              Use {"{{name}}"}, {"{{serviceTitle}}"}, {"{{whenLabel}}"}, {"{{siteName}}"}, etc.
+            </p>
             <Link
               href="/admin/email/templates"
-              className="mt-4 inline-block text-xs uppercase tracking-[0.14em] text-[#c6a75e] hover:underline"
+              className="mt-3 inline-block text-xs uppercase tracking-[0.14em] text-[#c6a75e] hover:underline"
             >
-              Edit reminder & thank-you copy →
+              Compose / bulk templates →
             </Link>
-            <p className="mt-3 text-[0.7rem] leading-5 text-white/40">
-              Booking / cancel / inquiry layouts are fixed. Reminder and thank-you subject &amp; intro are
-              editable under Email templates (keep Published).
+          </div>
+
+          <div className="admin-card p-5">
+            <p className="text-[0.62rem] uppercase tracking-[0.18em] text-[#c6a75e]">Edit copy</p>
+            <p className="mt-1 text-sm text-white/70">
+              {systemTemplates.find((t) => t.key === selectedSystemKey)?.label || "Template"}
             </p>
+            <label className="mt-4 grid gap-1 text-sm text-white/70">
+              Subject
+              <input
+                className="admin-input"
+                value={editSubject}
+                onChange={(e) => {
+                  setEditSubject(e.target.value);
+                  setEditDirty(true);
+                }}
+              />
+            </label>
+            <label className="mt-4 grid gap-1 text-sm text-white/70">
+              Intro
+              <RichTextEditor
+                value={editBody}
+                onChange={(v) => {
+                  setEditBody(v);
+                  setEditDirty(true);
+                }}
+                minHeight={220}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                className="admin-btn"
+                disabled={savingTemplate || !editSubject.trim() || !editBody.trim()}
+                onClick={() => void saveSystemTemplate()}
+              >
+                {savingTemplate ? "Saving…" : "Save & publish"}
+              </button>
+              {editDirty ? (
+                <span className="text-xs text-amber-200/80">Unsaved changes · preview updates live</span>
+              ) : (
+                <span className="text-xs text-white/40">Published copy is live</span>
+              )}
+            </div>
           </div>
 
           <div className="admin-card overflow-hidden">
             <div className="border-b border-white/10 px-5 py-4">
-              <p className="text-[0.62rem] uppercase tracking-[0.18em] text-[#c6a75e]">Preview</p>
+              <p className="text-[0.62rem] uppercase tracking-[0.18em] text-[#c6a75e]">Live preview</p>
               <p className="mt-1 text-sm text-white/80">{previewSubject || "Select a template"}</p>
             </div>
-            <div className="bg-[#f4f1ea] p-3 md:p-5">
+            <div className="bg-white p-3 md:p-6">
               {previewHtml ? (
                 <iframe
                   title="Email preview"
-                  className="h-[32rem] w-full rounded-xl border border-black/10 bg-white"
+                  className="h-[36rem] w-full rounded-xl border border-black/10 bg-white shadow-sm"
                   srcDoc={previewHtml}
                 />
               ) : (

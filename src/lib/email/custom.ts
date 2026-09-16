@@ -136,6 +136,66 @@ Reply anytime if you have questions — {{studioEmail}} · {{studioPhone}}.`,
     sortOrder: 3,
   },
   {
+    slug: "appointment_booked",
+    name: "Booking confirmed (auto)",
+    description: "Client confirmation after booking. Details, payment, and manage buttons stay fixed.",
+    subject: "Booking confirmed — {{serviceTitle}}",
+    body: `Hi {{name}},
+
+Your appointment is confirmed. We look forward to seeing you at the studio.`,
+    status: "published",
+    sortOrder: 20,
+  },
+  {
+    slug: "appointment_booked_staff",
+    name: "New booking staff alert (auto)",
+    description: "Staff/studio alert when a booking is confirmed.",
+    subject: "New booking — {{serviceTitle}}",
+    body: `Hi {{staffName}}, a new booking is on your calendar.`,
+    status: "published",
+    sortOrder: 21,
+  },
+  {
+    slug: "appointment_cancelled",
+    name: "Appointment cancelled (auto)",
+    description: "Client notice when a booking is cancelled.",
+    subject: "Cancelled — {{serviceTitle}}",
+    body: `Hi {{name}},
+
+Your appointment has been cancelled. If this was unexpected or you'd like to rebook, reply to this email or use the booking link below.`,
+    status: "published",
+    sortOrder: 22,
+  },
+  {
+    slug: "appointment_cancelled_staff",
+    name: "Cancellation alert studio (auto)",
+    description: "Studio/staff notice when a booking is cancelled.",
+    subject: "Cancelled — {{name}} · {{serviceTitle}}",
+    body: `A booking was cancelled.`,
+    status: "published",
+    sortOrder: 23,
+  },
+  {
+    slug: "appointment_rescheduled",
+    name: "Appointment rescheduled (auto)",
+    description: "Client notice when a booking time changes.",
+    subject: "Rescheduled — {{serviceTitle}}",
+    body: `Hi {{name}},
+
+Your appointment has been moved to a new time.`,
+    status: "published",
+    sortOrder: 24,
+  },
+  {
+    slug: "appointment_rescheduled_staff",
+    name: "Reschedule alert studio (auto)",
+    description: "Studio/staff notice when a booking is rescheduled.",
+    subject: "Rescheduled — {{name}} · {{serviceTitle}}",
+    body: `A booking was moved to a new time.`,
+    status: "published",
+    sortOrder: 25,
+  },
+  {
     slug: "appointment_reminder",
     name: "Appointment reminder (auto)",
     description:
@@ -145,7 +205,7 @@ Reply anytime if you have questions — {{studioEmail}} · {{studioPhone}}.`,
 
 This is a friendly reminder for your upcoming appointment. Please arrive on time and follow any pre-care steps for your treatment.`,
     status: "published",
-    sortOrder: 10,
+    sortOrder: 26,
   },
   {
     slug: "appointment_thank_you",
@@ -159,9 +219,53 @@ Thank you for visiting {{siteName}}. We hope you loved your experience.
 
 If you have a moment, a Google review helps others find us — and we'd love to see you again whenever you're ready.`,
     status: "published",
-    sortOrder: 11,
+    sortOrder: 27,
+  },
+  {
+    slug: "inquiry_received",
+    name: "Inquiry received (auto)",
+    description: "Auto-reply to the client after a contact form submission.",
+    subject: "We received your message — {{siteName}}",
+    body: `Hi {{name}},
+
+Thank you for contacting {{siteName}}. We've received your message and will reply as soon as we can.`,
+    status: "published",
+    sortOrder: 28,
+  },
+  {
+    slug: "inquiry_alert",
+    name: "New inquiry alert (auto)",
+    description: "Notifies the studio when a new inquiry arrives.",
+    subject: "New inquiry — {{name}}",
+    body: `A new contact form submission just arrived.`,
+    status: "published",
+    sortOrder: 29,
+  },
+  {
+    slug: "test_email",
+    name: "Test email (auto)",
+    description: "Verifies Resend delivery from the admin email hub.",
+    subject: "Test email — {{siteName}}",
+    body: `This is a test message from the Aniekanvas admin email hub. If you received it, Resend is configured correctly.`,
+    status: "published",
+    sortOrder: 30,
   },
 ] as const;
+
+/** System transactional slugs — subject/intro editable; layout details stay in code. */
+export const SYSTEM_EMAIL_TEMPLATE_SLUGS = new Set([
+  "appointment_booked",
+  "appointment_booked_staff",
+  "appointment_cancelled",
+  "appointment_cancelled_staff",
+  "appointment_rescheduled",
+  "appointment_rescheduled_staff",
+  "appointment_reminder",
+  "appointment_thank_you",
+  "inquiry_received",
+  "inquiry_alert",
+  "test_email",
+]);
 
 /** Ensure default templates exist (does not overwrite admin edits). */
 export async function ensureDefaultEmailTemplates(db: Database) {

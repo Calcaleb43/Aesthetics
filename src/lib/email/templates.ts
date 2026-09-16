@@ -66,12 +66,12 @@ export const EMAIL_TEMPLATE_META: Record<
   },
   appointment_reminder: {
     label: "Appointment reminder",
-    description: "Sent ~24 hours before the appointment. Copy editable in Email → templates.",
+    description: "Sent ~24 hours before the appointment.",
     audience: "client",
   },
   appointment_thank_you: {
     label: "Thank you / review",
-    description: "Sent ~24 hours after the appointment with review + rebook links. Copy editable in Email → templates.",
+    description: "Sent ~24 hours after the appointment with review + rebook links.",
     audience: "client",
   },
   inquiry_received: {
@@ -125,6 +125,13 @@ export type InquiryEmailVars = {
   phone?: string | null;
   serviceInterest?: string | null;
   message: string;
+  /** Optional CMS override for subject / intro (from Email templates). */
+  copyOverride?: { subject?: string; introHtml?: string } | null;
+};
+
+export type TestEmailVars = {
+  studio?: StudioEmailContext;
+  copyOverride?: { subject?: string; introHtml?: string } | null;
 };
 
 function studioOf(vars: { studio?: StudioEmailContext }) {
@@ -146,12 +153,22 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
   const isDeposit = vars.paymentMode === "deposit" && Boolean(balanceDue);
   const needsPayment = Boolean(vars.paymentUrl);
 
+  const defaultSubject = needsPayment
+    ? `Complete payment — ${vars.serviceTitle}`
+    : isDeposit
+      ? `Deposit received — ${vars.serviceTitle}`
+      : `Booking confirmed — ${vars.serviceTitle}`;
+  const defaultIntro = needsPayment
+    ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment time is held — finish payment to confirm.</p>`
+    : isDeposit
+      ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your deposit is confirmed. The remaining balance is due before or at your visit.</p>`
+      : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment is confirmed. We look forward to seeing you at the studio.</p>`;
+
   return {
-    subject: needsPayment
-      ? `Complete payment — ${vars.serviceTitle}`
-      : isDeposit
-        ? `Deposit received — ${vars.serviceTitle}`
-        : `Booking confirmed — ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || defaultSubject,
     preheader: needsPayment
       ? `Pay to confirm ${vars.serviceTitle} on ${vars.whenLabel}`
       : isDeposit
@@ -161,14 +178,7 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
       studio,
       eyebrow: needsPayment ? "Payment" : isDeposit ? "Deposit" : "Confirmed",
       title: needsPayment ? "Complete your booking" : isDeposit ? "Deposit received" : "You're booked",
-      introHtml: needsPayment
-        ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your appointment time is held — finish payment to confirm.</p>`
-        : isDeposit
-          ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your deposit is confirmed. The remaining balance is due before or at your visit.</p>`
-          : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your appointment is confirmed. We look forward to seeing you at the studio.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
@@ -214,14 +224,15 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
 export function renderAppointmentBookedStaff(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0;">Hi ${escapeHtml(vars.staffName || "team")}, a new booking is on your calendar.</p>`;
   return {
-    subject: `New booking — ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || `New booking — ${vars.serviceTitle}`,
     preheader: `${vars.clientName} · ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Studio alert",
       title: "New appointment",
-      introHtml: `<p style="margin:0;">Hi ${escapeHtml(vars.staffName || "team")}, a new booking is on your calendar.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
@@ -244,15 +255,16 @@ export function renderAppointmentBookedStaff(vars: AppointmentEmailVars): Render
 export function renderAppointmentCancelled(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment has been cancelled. If this was unexpected or you'd like to rebook, reply to this email or use the booking link below.</p>`;
   return {
-    subject: `Cancelled — ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || `Cancelled — ${vars.serviceTitle}`,
     preheader: `Your ${vars.serviceTitle} on ${vars.whenLabel} was cancelled`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Update",
       title: "Appointment cancelled",
-      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your appointment has been cancelled. If this was unexpected or you'd like to rebook, reply to this email or use the booking link below.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "Was scheduled", value: vars.whenLabel },
@@ -268,14 +280,15 @@ export function renderAppointmentCancelled(vars: AppointmentEmailVars): Rendered
 export function renderAppointmentCancelledStaff(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0;">A booking was cancelled.</p>`;
   return {
-    subject: `Cancelled — ${vars.clientName} · ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || `Cancelled — ${vars.clientName} · ${vars.serviceTitle}`,
     preheader: `${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Studio alert",
       title: "Appointment cancelled",
-      introHtml: `<p style="margin:0;">A booking was cancelled.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "Was scheduled", value: vars.whenLabel },
@@ -291,15 +304,16 @@ export function renderAppointmentCancelledStaff(vars: AppointmentEmailVars): Ren
 export function renderAppointmentRescheduled(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your appointment has been moved to a new time.</p>`;
   return {
-    subject: `Rescheduled — ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || `Rescheduled — ${vars.serviceTitle}`,
     preheader: `New time: ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Updated",
       title: "Appointment rescheduled",
-      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your appointment has been moved to a new time.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         ...(vars.previousWhenLabel ? [{ label: "Previously", value: vars.previousWhenLabel }] : []),
@@ -317,14 +331,15 @@ export function renderAppointmentRescheduled(vars: AppointmentEmailVars): Render
 export function renderAppointmentRescheduledStaff(vars: AppointmentEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0;">A booking was moved to a new time.</p>`;
   return {
-    subject: `Rescheduled — ${vars.clientName} · ${vars.serviceTitle}`,
+    subject: vars.copyOverride?.subject || `Rescheduled — ${vars.clientName} · ${vars.serviceTitle}`,
     preheader: `${vars.previousWhenLabel || ""} → ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
       eyebrow: "Studio alert",
       title: "Appointment rescheduled",
-      introHtml: `<p style="margin:0;">A booking was moved to a new time.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         ...(vars.previousWhenLabel ? [{ label: "Previously", value: vars.previousWhenLabel }] : []),
@@ -404,15 +419,16 @@ export function renderAppointmentThankYou(vars: AppointmentEmailVars): RenderedE
 export function renderInquiryReceived(vars: InquiryEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.name)},</p>
+        <p style="margin:0;">Thank you for contacting ${escapeHtml(studio.siteName)}. We've received your message and will reply as soon as we can.</p>`;
   return {
-    subject: `We received your message — ${studio.siteName}`,
+    subject: vars.copyOverride?.subject || `We received your message — ${studio.siteName}`,
     preheader: "Thanks for reaching out. We'll get back to you shortly.",
     html: renderEmailLayout({
       studio,
       eyebrow: "Contact",
       title: "Message received",
-      introHtml: `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.name)},</p>
-        <p style="margin:0;">Thank you for contacting ${escapeHtml(studio.siteName)}. We've received your message and will reply as soon as we can.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         ...(vars.serviceInterest ? [{ label: "Interest", value: vars.serviceInterest }] : []),
         { label: "Your message", value: vars.message },
@@ -428,14 +444,15 @@ export function renderInquiryReceived(vars: InquiryEmailVars): RenderedEmail {
 export function renderInquiryAlert(vars: InquiryEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
+  const defaultIntro = `<p style="margin:0;">A new contact form submission just arrived.</p>`;
   return {
-    subject: `New inquiry — ${vars.name}`,
+    subject: vars.copyOverride?.subject || `New inquiry — ${vars.name}`,
     preheader: vars.serviceInterest || vars.message.slice(0, 80),
     html: renderEmailLayout({
       studio,
       eyebrow: "Inbox",
       title: "New inquiry",
-      introHtml: `<p style="margin:0;">A new contact form submission just arrived.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "Name", value: vars.name },
         { label: "Email", value: vars.email },
@@ -448,16 +465,17 @@ export function renderInquiryAlert(vars: InquiryEmailVars): RenderedEmail {
   };
 }
 
-export function renderTestEmail(studio?: StudioEmailContext): RenderedEmail {
-  const s = studio || DEFAULT_STUDIO;
+export function renderTestEmail(vars: TestEmailVars = {}): RenderedEmail {
+  const s = studioOf(vars);
+  const defaultIntro = `<p style="margin:0;">This is a test message from the Aniekanvas admin email hub. If you received it, Resend is configured correctly.</p>`;
   return {
-    subject: `Test email — ${s.siteName}`,
+    subject: vars.copyOverride?.subject || `Test email — ${s.siteName}`,
     preheader: "Resend delivery is working.",
     html: renderEmailLayout({
       studio: s,
       eyebrow: "System",
       title: "Email delivery OK",
-      introHtml: `<p style="margin:0;">This is a test message from the Aniekanvas admin email hub. If you received it, Resend is configured correctly.</p>`,
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
       detailRows: [
         { label: "From studio", value: s.email },
         { label: "Sent at", value: new Date().toISOString() },
@@ -468,7 +486,7 @@ export function renderTestEmail(studio?: StudioEmailContext): RenderedEmail {
 
 export function renderEmailTemplate(
   key: EmailTemplateKey,
-  vars: AppointmentEmailVars | InquiryEmailVars | { studio?: StudioEmailContext } = {},
+  vars: AppointmentEmailVars | InquiryEmailVars | TestEmailVars = {},
 ): RenderedEmail {
   switch (key) {
     case "appointment_booked":
@@ -492,7 +510,7 @@ export function renderEmailTemplate(
     case "inquiry_alert":
       return renderInquiryAlert(vars as InquiryEmailVars);
     case "test_email":
-      return renderTestEmail((vars as { studio?: StudioEmailContext }).studio);
+      return renderTestEmail(vars as TestEmailVars);
     default:
       return renderTestEmail();
   }

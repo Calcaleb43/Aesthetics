@@ -27,7 +27,7 @@ export default async function AdminEmailTemplatesPage({
   return (
     <AdminShell
       title="Email templates"
-      description={`Edit compose/bulk templates and automated reminder / thank-you copy. Keep status Published for auto emails to use your tweaks. Variables: ${varHint}`}
+      description={`Compose/bulk templates live here. System (transactional) subject & intro are edited in Email → Templates with live preview. Variables: ${varHint}`}
     >
       <CollectionWorkspace
         items={templates.map((t) => ({

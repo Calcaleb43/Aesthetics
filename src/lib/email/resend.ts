@@ -17,15 +17,11 @@ import {
   type AppointmentEmailVars,
   type InquiryEmailVars,
 } from "@/lib/email/templates";
+import type { TemplateVars } from "@/lib/email/custom";
 
-async function withAppointmentCopy(
-  db: Database | null | undefined,
-  slug: string,
-  input: AppointmentEmailVars,
-) {
-  const studio = input.studio || (await loadStudioEmailContext(db));
+function appointmentTemplateVars(input: AppointmentEmailVars, studio: NonNullable<AppointmentEmailVars["studio"]>): TemplateVars {
   const base = siteUrl();
-  const copyOverride = await loadTemplateCopyOverride(db, slug, {
+  return {
     name: input.clientName,
     email: input.clientEmail || "",
     phone: input.clientPhone || "",
@@ -39,7 +35,46 @@ async function withAppointmentCopy(
     serviceTitle: input.serviceTitle,
     whenLabel: input.whenLabel,
     staffName: input.staffName || "",
-  });
+  };
+}
+
+function inquiryTemplateVars(input: InquiryEmailVars, studio: NonNullable<InquiryEmailVars["studio"]>): TemplateVars {
+  const base = siteUrl();
+  return {
+    name: input.name,
+    email: input.email,
+    phone: input.phone || "",
+    siteName: studio.siteName,
+    studioEmail: studio.email,
+    studioPhone: studio.phone,
+    address: studio.address,
+    bookingUrl: studio.bookingUrl || `${base}/book-now`,
+    siteUrl: base,
+    reviewsUrl: studio.googleReviewsUrl || "",
+    serviceTitle: input.serviceInterest || "",
+    whenLabel: "",
+    staffName: "",
+    message: input.message,
+  };
+}
+
+async function withAppointmentCopy(
+  db: Database | null | undefined,
+  slug: string,
+  input: AppointmentEmailVars,
+) {
+  const studio = input.studio || (await loadStudioEmailContext(db));
+  const copyOverride = await loadTemplateCopyOverride(db, slug, appointmentTemplateVars(input, studio));
+  return { ...input, studio, copyOverride };
+}
+
+async function withInquiryCopy(
+  db: Database | null | undefined,
+  slug: string,
+  input: InquiryEmailVars,
+) {
+  const studio = input.studio || (await loadStudioEmailContext(db));
+  const copyOverride = await loadTemplateCopyOverride(db, slug, inquiryTemplateVars(input, studio));
   return { ...input, studio, copyOverride };
 }
 
@@ -51,8 +86,8 @@ export async function emailAppointmentBooked(
     db?: Database | null;
   },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const vars = { ...input, studio };
+  const slug = input.isStaff ? "appointment_booked_staff" : "appointment_booked";
+  const vars = await withAppointmentCopy(input.db, slug, input);
   const rendered = input.isStaff ? renderAppointmentBookedStaff(vars) : renderAppointmentBooked(vars);
   return sendEmail({
     db: input.db,
@@ -60,7 +95,7 @@ export async function emailAppointmentBooked(
     toName: input.isStaff ? input.staffName : input.clientName,
     subject: rendered.subject,
     html: rendered.html,
-    templateKey: input.isStaff ? "appointment_booked_staff" : "appointment_booked",
+    templateKey: slug,
     appointmentId: input.appointmentId,
     metadata: { isStaff: Boolean(input.isStaff), hasPaymentLink: Boolean(input.paymentUrl) },
   });
@@ -73,8 +108,8 @@ export async function emailAppointmentCancelled(
     db?: Database | null;
   },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const rendered = renderAppointmentCancelled({ ...input, studio });
+  const vars = await withAppointmentCopy(input.db, "appointment_cancelled", input);
+  const rendered = renderAppointmentCancelled(vars);
   return sendEmail({
     db: input.db,
     to: input.to,
@@ -93,8 +128,8 @@ export async function emailAppointmentCancelledStaff(
     db?: Database | null;
   },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const rendered = renderAppointmentCancelledStaff({ ...input, studio });
+  const vars = await withAppointmentCopy(input.db, "appointment_cancelled_staff", input);
+  const rendered = renderAppointmentCancelledStaff(vars);
   return sendEmail({
     db: input.db,
     to: input.to,
@@ -114,17 +149,18 @@ export async function emailAppointmentRescheduled(
     isStaff?: boolean;
   },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
+  const slug = input.isStaff ? "appointment_rescheduled_staff" : "appointment_rescheduled";
+  const vars = await withAppointmentCopy(input.db, slug, input);
   const rendered = input.isStaff
-    ? renderAppointmentRescheduledStaff({ ...input, studio })
-    : renderAppointmentRescheduled({ ...input, studio });
+    ? renderAppointmentRescheduledStaff(vars)
+    : renderAppointmentRescheduled(vars);
   return sendEmail({
     db: input.db,
     to: input.to,
     toName: input.isStaff ? input.staffName : input.clientName,
     subject: rendered.subject,
     html: rendered.html,
-    templateKey: input.isStaff ? "appointment_rescheduled_staff" : "appointment_rescheduled",
+    templateKey: slug,
     appointmentId: input.appointmentId,
   });
 }
@@ -172,8 +208,8 @@ export async function emailAppointmentThankYou(
 export async function emailInquiryReceived(
   input: InquiryEmailVars & { inquiryId?: string | null; db?: Database | null },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const rendered = renderInquiryReceived({ ...input, studio });
+  const vars = await withInquiryCopy(input.db, "inquiry_received", input);
+  const rendered = renderInquiryReceived(vars);
   return sendEmail({
     db: input.db,
     to: input.email,
@@ -188,11 +224,11 @@ export async function emailInquiryReceived(
 export async function emailInquiryAlert(
   input: InquiryEmailVars & { inquiryId?: string | null; db?: Database | null },
 ) {
-  const studio = input.studio || (await loadStudioEmailContext(input.db));
-  const rendered = renderInquiryAlert({ ...input, studio });
+  const vars = await withInquiryCopy(input.db, "inquiry_alert", input);
+  const rendered = renderInquiryAlert(vars);
   const managers = input.db ? await studioManagerEmails(input.db) : [];
   const recipients = managers.map((m) => m.email);
-  if (!recipients.length) recipients.push(studio.email);
+  if (!recipients.length) recipients.push(vars.studio!.email);
 
   const results = [];
   for (const to of recipients) {
@@ -217,7 +253,19 @@ export async function emailTestMessage(input: {
   db?: Database | null;
 }) {
   const studio = await loadStudioEmailContext(input.db);
-  const rendered = renderTestEmail(studio);
+  const base = siteUrl();
+  const copyOverride = await loadTemplateCopyOverride(input.db, "test_email", {
+    name: "Admin",
+    email: input.to,
+    siteName: studio.siteName,
+    studioEmail: studio.email,
+    studioPhone: studio.phone,
+    address: studio.address,
+    bookingUrl: studio.bookingUrl || `${base}/book-now`,
+    siteUrl: base,
+    reviewsUrl: studio.googleReviewsUrl || "",
+  });
+  const rendered = renderTestEmail({ studio, copyOverride });
   return sendEmail({
     db: input.db,
     to: input.to,
