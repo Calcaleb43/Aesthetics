@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
+import { absoluteUrl } from "@/lib/seo";
+import { getBlobAccess, mediaAssetPublicPath } from "@/lib/blob";
 
 const MAX_BYTES = 12 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]);
@@ -18,8 +20,6 @@ function slugifyFilename(name: string) {
 }
 
 async function readImageSize(file: File): Promise<{ width: number | null; height: number | null }> {
-  // Lightweight: only available for some formats in Node via sharp — skip if unavailable.
-  // Keep nulls; UI still works with URL.
   void file;
   return { width: null, height: null };
 }
@@ -53,10 +53,11 @@ export async function POST(req: Request) {
   const label = String(form.get("label") || file.name || "").slice(0, 200);
   const alt = String(form.get("alt") || "").slice(0, 500);
   const pathname = `media/${slugifyFilename(file.name)}`;
+  const access = getBlobAccess();
 
   try {
     const blob = await put(pathname, file, {
-      access: "public",
+      access,
       token: process.env.BLOB_READ_WRITE_TOKEN,
       contentType: file.type,
       addRandomSuffix: true,
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
     const size = await readImageSize(file);
     const row = await gate.db.mediaAsset.create({
       data: {
+        // Placeholder; rewritten below for private stores so CMS picks a site URL.
         url: blob.url,
         pathname: blob.pathname,
         contentType: file.type,
@@ -76,22 +78,41 @@ export async function POST(req: Request) {
       },
     });
 
+    const publicUrl =
+      access === "private" ? absoluteUrl(mediaAssetPublicPath(row.id)) : blob.url;
+
+    const saved =
+      publicUrl !== row.url
+        ? await gate.db.mediaAsset.update({
+            where: { id: row.id },
+            data: { url: publicUrl },
+          })
+        : row;
+
     revalidateSite();
     return NextResponse.json({
-      id: row.id,
-      url: row.url,
-      alt: row.alt,
-      label: row.label,
-      pathname: row.pathname,
-      contentType: row.contentType,
-      bytes: row.bytes,
-      width: row.width,
-      height: row.height,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      id: saved.id,
+      url: saved.url,
+      alt: saved.alt,
+      label: saved.label,
+      pathname: saved.pathname,
+      contentType: saved.contentType,
+      bytes: saved.bytes,
+      width: saved.width,
+      height: saved.height,
+      createdAt: saved.createdAt.toISOString(),
+      updatedAt: saved.updatedAt.toISOString(),
     });
   } catch (err) {
     console.error("Media upload failed", err);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Upload failed";
+    return NextResponse.json(
+      {
+        error: message.includes("private store")
+          ? "Blob store is private — set BLOB_ACCESS=private (default) or use a public store with BLOB_ACCESS=public."
+          : "Upload failed",
+      },
+      { status: 500 },
+    );
   }
 }

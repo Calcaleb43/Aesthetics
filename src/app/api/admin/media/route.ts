@@ -4,6 +4,7 @@ import { z } from "zod";
 import { normalizeMediaUrl } from "@/lib/admin/media-url";
 import { revalidateSite } from "@/lib/admin/revalidate";
 import { requireAdminApi } from "@/lib/auth/admin-api";
+import { isPrivateBlobUrl, mediaAssetPublicPath } from "@/lib/blob";
 
 export type MediaDto = {
   id: string;
@@ -32,9 +33,12 @@ function mapRow(row: {
   createdAt: Date;
   updatedAt: Date;
 }): MediaDto {
+  // Older uploads may still store the private blob URL; serve via proxy for previews.
+  const url =
+    row.pathname && isPrivateBlobUrl(row.url) ? mediaAssetPublicPath(row.id) : row.url;
   return {
     id: row.id,
-    url: row.url,
+    url,
     alt: row.alt,
     label: row.label,
     pathname: row.pathname,
