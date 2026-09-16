@@ -1,8 +1,8 @@
 import { bookingHref } from "@/lib/booking/money";
-import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ContentBlocks } from "@/components/site/ContentBlocks";
+import { MeetAnieVideo } from "@/components/site/MeetAnieVideo";
 import { PageHero } from "@/components/site/PageHero";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { htmlToPlainText } from "@/lib/content/html";
@@ -40,15 +40,7 @@ export default async function AboutPage() {
       <section className="section">
         <div className="container grid gap-12 lg:grid-cols-[0.95fr_1.05fr]">
           <ScrollReveal variant="left">
-            <div className="media-frame aspect-[4/5]">
-              <Image
-                src={settings.aboutImage}
-                alt="Stephanie Anie"
-                width={1000}
-                height={1300}
-                className="h-full w-full object-cover"
-              />
-            </div>
+            <MeetAnieVideo poster={settings.aboutImage} />
           </ScrollReveal>
           <div>
             <ScrollReveal variant="right" delay={80}>

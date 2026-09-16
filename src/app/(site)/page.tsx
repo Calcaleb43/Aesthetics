@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { HeroCarousel, type HeroSlide } from "@/components/site/HeroCarousel";
+import { MeetAnieVideo } from "@/components/site/MeetAnieVideo";
 import { RichHtml } from "@/components/site/RichHtml";
 import { ScrollReveal } from "@/components/site/ScrollReveal";
 import { TestimonialsSection } from "@/components/site/TestimonialsSection";
@@ -110,15 +111,7 @@ export default async function HomePage() {
       <section className="section bg-black text-white">
         <div className="container grid items-center gap-12 lg:grid-cols-2">
           <ScrollReveal variant="scale">
-            <div className="media-frame aspect-[4/5] drift">
-              <Image
-                src={settings.aboutImage}
-                alt="Stephanie Anie"
-                width={1000}
-                height={1250}
-                className="h-full w-full object-cover"
-              />
-            </div>
+            <MeetAnieVideo className="drift" poster={settings.aboutImage} />
           </ScrollReveal>
           <ScrollReveal variant="right" delay={140}>
             <div>
