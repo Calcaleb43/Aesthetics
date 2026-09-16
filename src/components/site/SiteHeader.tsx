@@ -93,7 +93,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
               aria-controls={servicesMenuId}
               onClick={() => setServicesOpen((v) => !v)}
             >
-              Services
+              SERVICES
               <ChevronDown
                 size={13}
                 className={`transition-transform duration-200 ${servicesOpen ? "rotate-180" : ""}`}
@@ -196,7 +196,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
               aria-expanded={mobileServicesOpen}
               onClick={() => setMobileServicesOpen((v) => !v)}
             >
-              Services
+              SERVICES
               <ChevronDown
                 size={16}
                 className={`transition-transform duration-200 ${mobileServicesOpen ? "rotate-180" : ""}`}
