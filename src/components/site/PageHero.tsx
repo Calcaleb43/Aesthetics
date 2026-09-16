@@ -13,6 +13,8 @@ type PageHeroProps = {
   subtitle?: string;
   image: string;
   imageAlt?: string;
+  /** Optional looping muted background video (uses `image` as poster). */
+  video?: string;
   size?: "default" | "tall" | "compact";
   ctas?: Cta[];
   align?: "start" | "center";
@@ -45,6 +47,7 @@ export function PageHero({
   subtitle,
   image,
   imageAlt = "",
+  video,
   size = "default",
   ctas,
   align = "start",
@@ -59,7 +62,21 @@ export function PageHero({
   return (
     <section className={`relative overflow-x-clip bg-black text-white ${height}`}>
       <div className="absolute inset-0 overflow-hidden">
-        <ParallaxImage src={image} alt={imageAlt} className="opacity-55" />
+        {video ? (
+          <video
+            className="absolute inset-0 h-full w-full object-cover opacity-55"
+            src={video}
+            poster={image}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-hidden
+          />
+        ) : (
+          <ParallaxImage src={image} alt={imageAlt} className="opacity-55" />
+        )}
         <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.25)_0%,rgba(0,0,0,0.55)_45%,rgba(0,0,0,0.82)_100%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,rgba(198,167,94,0.22),transparent_42%)]" />
       </div>

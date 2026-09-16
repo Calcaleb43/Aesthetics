@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PageHero } from "@/components/site/PageHero";
 import { BookingWizard } from "@/components/site/BookingWizard";
+import { MEET_ANIE_INTRO_POSTER, MEET_ANIE_INTRO_SRC } from "@/components/site/MeetAnieVideo";
 import { getPage, getSettings } from "@/lib/content/queries";
 import { buildPageMetadata } from "@/lib/seo";
 
@@ -28,8 +29,9 @@ export default async function BookNowPage({
         eyebrow="Book Now"
         title={page?.title || "Book an appointment"}
         subtitle="Choose a category, select one or more services, pick an available time, and secure your visit with a booking payment."
-        image={settings.heroImage}
+        image={settings.heroImage || MEET_ANIE_INTRO_POSTER}
         imageAlt="Aniekanvas Aesthetics studio"
+        video={MEET_ANIE_INTRO_SRC}
         size="compact"
       />
       <section className="section-tight mx-auto max-w-4xl pb-20">
