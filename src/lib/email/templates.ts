@@ -15,6 +15,8 @@ export const EMAIL_TEMPLATE_KEYS = [
   "appointment_cancelled_staff",
   "appointment_rescheduled",
   "appointment_rescheduled_staff",
+  "appointment_updated",
+  "appointment_updated_staff",
   "appointment_reminder",
   "appointment_thank_you",
   "inquiry_received",
@@ -62,6 +64,16 @@ export const EMAIL_TEMPLATE_META: Record<
   appointment_rescheduled_staff: {
     label: "Reschedule alert (studio)",
     description: "Notifies studio/staff when a booking is rescheduled.",
+    audience: "staff",
+  },
+  appointment_updated: {
+    label: "Booking updated",
+    description: "Sent to the client when an admin updates booking details.",
+    audience: "client",
+  },
+  appointment_updated_staff: {
+    label: "Booking update alert (studio)",
+    description: "Notifies studio/staff when a booking is updated.",
     audience: "staff",
   },
   appointment_reminder: {
@@ -116,6 +128,8 @@ export type AppointmentEmailVars = {
   paymentUrl?: string | null;
   /** Client self-serve cancel / reschedule link */
   manageUrl?: string | null;
+  /** Human-readable lines describing what an admin changed */
+  changeLines?: string[] | null;
 };
 
 export type InquiryEmailVars = {
@@ -416,6 +430,63 @@ export function renderAppointmentThankYou(vars: AppointmentEmailVars): RenderedE
   };
 }
 
+export function renderAppointmentUpdated(vars: AppointmentEmailVars & { isStaff?: boolean }): RenderedEmail {
+  const studio = studioOf(vars);
+  const base = siteUrl();
+  const lines = (vars.changeLines || []).filter(Boolean);
+  const changesHtml = lines.length
+    ? `<ul style="margin:0;padding-left:1.1rem;">${lines
+        .map((line) => `<li style="margin:0 0 6px;">${escapeHtml(line)}</li>`)
+        .join("")}</ul>`
+    : `<p style="margin:0;">Your booking details were updated by the studio.</p>`;
+
+  if (vars.isStaff) {
+    const defaultIntro = `<p style="margin:0;">A booking was updated by the studio.</p>`;
+    return {
+      subject: vars.copyOverride?.subject || `Updated — ${vars.clientName} · ${vars.serviceTitle}`,
+      preheader: lines[0] || vars.whenLabel,
+      html: renderEmailLayout({
+        studio,
+        eyebrow: "Studio alert",
+        title: "Booking updated",
+        introHtml: vars.copyOverride?.introHtml || defaultIntro,
+        detailRows: [
+          { label: "Service", value: vars.serviceTitle },
+          { label: "When", value: vars.whenLabel },
+          { label: "Client", value: vars.clientName },
+          ...(vars.clientEmail ? [{ label: "Email", value: vars.clientEmail }] : []),
+          ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
+        ],
+        bodyHtml: `<p style="margin:0 0 8px;font-weight:600;">What changed</p>${changesHtml}`,
+        ctaHtml: emailButton("Open calendar", `${base}/admin/appointments`),
+      }),
+    };
+  }
+
+  const defaultIntro = `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
+        <p style="margin:0;">Your booking was updated. Please review the changes below.</p>`;
+  return {
+    subject: vars.copyOverride?.subject || `Updated — ${vars.serviceTitle}`,
+    preheader: lines[0] || `Your ${vars.serviceTitle} booking was updated`,
+    html: renderEmailLayout({
+      studio,
+      eyebrow: "Update",
+      title: "Booking updated",
+      introHtml: vars.copyOverride?.introHtml || defaultIntro,
+      detailRows: [
+        { label: "Service", value: vars.serviceTitle },
+        { label: "When", value: vars.whenLabel },
+        ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
+      ],
+      bodyHtml: `<p style="margin:0 0 8px;font-weight:600;">What changed</p>${changesHtml}`,
+      ctaHtml: [
+        ...(vars.manageUrl ? [emailButton("Cancel / reschedule", vars.manageUrl)] : []),
+        emailButton("Policies", `${base}/policies`, "ghost"),
+      ].join(""),
+    }),
+  };
+}
+
 export function renderInquiryReceived(vars: InquiryEmailVars): RenderedEmail {
   const studio = studioOf(vars);
   const base = siteUrl();
@@ -501,6 +572,10 @@ export function renderEmailTemplate(
       return renderAppointmentRescheduled(vars as AppointmentEmailVars);
     case "appointment_rescheduled_staff":
       return renderAppointmentRescheduledStaff(vars as AppointmentEmailVars);
+    case "appointment_updated":
+      return renderAppointmentUpdated(vars as AppointmentEmailVars);
+    case "appointment_updated_staff":
+      return renderAppointmentUpdated({ ...(vars as AppointmentEmailVars), isStaff: true });
     case "appointment_reminder":
       return renderAppointmentReminder(vars as AppointmentEmailVars);
     case "appointment_thank_you":

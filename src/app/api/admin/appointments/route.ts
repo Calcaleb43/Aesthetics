@@ -189,6 +189,8 @@ const patchSchema = z.object({
   serviceId: z.string().uuid().optional(),
   serviceIds: z.array(z.string().uuid()).min(1).optional(),
   clientId: z.string().uuid().nullable().optional(),
+  /** When true, skip automatic cancel/confirm/reschedule emails (UI will prompt instead). */
+  skipAnnounce: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -329,28 +331,91 @@ export async function PATCH(req: Request) {
       service: { select: { title: true } },
       category: { select: { title: true } },
       staff: true,
-      lines: { orderBy: { sortOrder: "asc" }, select: { title: true } },
+      lines: { orderBy: { sortOrder: "asc" }, select: { title: true, serviceId: true } },
     },
   });
 
-  if (parsed.data.status === "cancelled" && existing.status !== "cancelled") {
-    await announceAppointmentCancelled(gate.db, updated.id);
-  }
+  const settings = await gate.db.siteSettings.findUnique({ where: { id: 1 }, select: { timezone: true } });
+  const tz = settings?.timezone || "America/Toronto";
+  const formatWhen = (d: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(d);
 
-  if (parsed.data.status === "confirmed" && existing.status !== "confirmed") {
-    await announceAppointmentBooked(gate.db, updated.id);
+  const changeLines: string[] = [];
+  if (parsed.data.status !== undefined && parsed.data.status !== existing.status) {
+    changeLines.push(`Status: ${existing.status.replace("_", " ")} → ${parsed.data.status.replace("_", " ")}`);
   }
-
+  if (timeChanged) {
+    changeLines.push(`Time: ${formatWhen(previousStartsAt)} → ${formatWhen(updated.startsAt)}`);
+  }
+  if (parsed.data.serviceIds || parsed.data.serviceId) {
+    const before =
+      existing.lines.map((l) => l.title).join(", ") ||
+      existing.serviceLabel ||
+      existing.service?.title ||
+      "Service";
+    const after =
+      updated.lines.map((l) => l.title).join(", ") ||
+      updated.serviceLabel ||
+      updated.service?.title ||
+      "Service";
+    if (before !== after) changeLines.push(`Services: ${before} → ${after}`);
+  }
+  if (parsed.data.staffId !== undefined && parsed.data.staffId !== existing.staffId) {
+    const before = existing.staff?.name || "Unassigned";
+    const after = updated.staff?.name || "Unassigned";
+    changeLines.push(`Staff: ${before} → ${after}`);
+  }
+  if (parsed.data.clientName !== undefined && parsed.data.clientName.trim() !== existing.clientName) {
+    changeLines.push(`Name: ${existing.clientName} → ${parsed.data.clientName.trim()}`);
+  }
   if (
-    timeChanged &&
-    existing.status !== "cancelled" &&
-    updated.status !== "cancelled" &&
-    parsed.data.status !== "cancelled"
+    parsed.data.clientEmail !== undefined &&
+    parsed.data.clientEmail.trim().toLowerCase() !== existing.clientEmail
   ) {
-    await announceAppointmentRescheduled(gate.db, updated.id, previousStartsAt);
+    changeLines.push(`Email: ${existing.clientEmail} → ${parsed.data.clientEmail.trim().toLowerCase()}`);
+  }
+  if (
+    parsed.data.clientPhone !== undefined &&
+    (parsed.data.clientPhone || "") !== (existing.clientPhone || "")
+  ) {
+    changeLines.push(
+      `Phone: ${existing.clientPhone || "—"} → ${parsed.data.clientPhone || "—"}`,
+    );
+  }
+  if (parsed.data.notes !== undefined && (parsed.data.notes || "") !== (existing.notes || "")) {
+    changeLines.push("Notes were updated");
   }
 
-  return NextResponse.json({ ok: true });
+  const skipAnnounce = Boolean(parsed.data.skipAnnounce);
+
+  if (!skipAnnounce) {
+    if (parsed.data.status === "cancelled" && existing.status !== "cancelled") {
+      await announceAppointmentCancelled(gate.db, updated.id);
+    }
+
+    if (parsed.data.status === "confirmed" && existing.status !== "confirmed") {
+      await announceAppointmentBooked(gate.db, updated.id);
+    }
+
+    if (
+      timeChanged &&
+      existing.status !== "cancelled" &&
+      updated.status !== "cancelled" &&
+      parsed.data.status !== "cancelled"
+    ) {
+      await announceAppointmentRescheduled(gate.db, updated.id, previousStartsAt);
+    }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    changes: changeLines,
+    autoAnnounced: !skipAnnounce,
+  });
 }
 
 const createSchema = z.object({

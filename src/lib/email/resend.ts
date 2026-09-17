@@ -11,6 +11,7 @@ import {
   renderAppointmentRescheduled,
   renderAppointmentRescheduledStaff,
   renderAppointmentThankYou,
+  renderAppointmentUpdated,
   renderInquiryAlert,
   renderInquiryReceived,
   renderTestEmail,
@@ -202,6 +203,29 @@ export async function emailAppointmentThankYou(
     html: rendered.html,
     templateKey: "appointment_thank_you",
     appointmentId: input.appointmentId,
+  });
+}
+
+export async function emailAppointmentUpdated(
+  input: AppointmentEmailVars & {
+    to: string;
+    appointmentId?: string | null;
+    db?: Database | null;
+    isStaff?: boolean;
+  },
+) {
+  const slug = input.isStaff ? "appointment_updated_staff" : "appointment_updated";
+  const vars = await withAppointmentCopy(input.db, slug, input);
+  const rendered = renderAppointmentUpdated({ ...vars, isStaff: input.isStaff });
+  return sendEmail({
+    db: input.db,
+    to: input.to,
+    toName: input.isStaff ? input.staffName : input.clientName,
+    subject: rendered.subject,
+    html: rendered.html,
+    templateKey: slug,
+    appointmentId: input.appointmentId,
+    metadata: { changeLines: input.changeLines || [] },
   });
 }
 

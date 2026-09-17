@@ -465,20 +465,50 @@ export function AdminCalendar({
     load();
   }
 
-  async function patchAppointment(body: Record<string, unknown>) {
+  async function patchAppointment(
+    body: Record<string, unknown>,
+    opts?: { skipAnnounce?: boolean; promptNotify?: boolean },
+  ) {
     if (!canWrite || !selected) return;
     setSaving(true);
     setError("");
     const res = await fetch("/api/admin/appointments", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: selected.id, ...body }),
+      body: JSON.stringify({
+        id: selected.id,
+        skipAnnounce: opts?.skipAnnounce || undefined,
+        ...body,
+      }),
     });
+    const data = await res.json().catch(() => ({}));
     setSaving(false);
     if (!res.ok) {
-      setError("Could not update appointment");
+      setError(data.error || "Could not update appointment");
       return;
     }
+
+    const changes: string[] = Array.isArray(data.changes) ? data.changes : [];
+    if (opts?.promptNotify && changes.length) {
+      const summary = changes.map((c) => `• ${c}`).join("\n");
+      const notify = window.confirm(
+        `Booking saved.\n\nAlert ${selected.clientName} (${selected.clientEmail}) about these updates?\n\n${summary}`,
+      );
+      if (notify) {
+        const notifyRes = await fetch("/api/admin/appointments/notify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: selected.id, changeLines: changes }),
+        });
+        if (!notifyRes.ok) {
+          const notifyData = await notifyRes.json().catch(() => ({}));
+          setError(notifyData.error || "Saved, but client alert failed");
+          load();
+          return;
+        }
+      }
+    }
+
     closeDrawer();
     load();
   }
@@ -511,15 +541,23 @@ export function AdminCalendar({
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    await patchAppointment({
-      notes: form.notes,
-      staffId: canManageAll ? form.staffId || null : undefined,
-      startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : undefined,
-      clientId: form.clientId || null,
-      clientName: form.clientName,
-      clientEmail: form.clientEmail,
-      clientPhone: form.clientPhone || null,
-    });
+    if (!form.serviceIds.length) {
+      setError("Select at least one service");
+      return;
+    }
+    await patchAppointment(
+      {
+        notes: form.notes,
+        staffId: canManageAll ? form.staffId || null : undefined,
+        startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : undefined,
+        clientId: form.clientId || null,
+        clientName: form.clientName,
+        clientEmail: form.clientEmail,
+        clientPhone: form.clientPhone || null,
+        serviceIds: form.serviceIds,
+      },
+      { skipAnnounce: true, promptNotify: true },
+    );
   }
 
   function appointmentsForDay(day: Date) {
@@ -914,7 +952,7 @@ export function AdminCalendar({
                   onSubmit={drawer === "create" ? submitCreate : saveEdit}
                   className="grid gap-3"
                 >
-                  {drawer === "create" ? (
+                  {(drawer === "create" || drawer === "edit") ? (
                     <fieldset className="grid gap-2 text-sm text-white/70">
                       <legend className="mb-1">Services</legend>
                       <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">
@@ -1146,6 +1184,11 @@ export function AdminCalendar({
                           : "Create"
                         : "Save changes"}
                   </button>
+                  {drawer === "edit" ? (
+                    <p className="text-xs text-white/40">
+                      After saving, you&apos;ll be asked whether to email/SMS the client with what changed.
+                    </p>
+                  ) : null}
                 </form>
               )}
 

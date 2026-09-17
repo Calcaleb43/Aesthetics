@@ -9,6 +9,7 @@ import {
   emailAppointmentCancelled,
   emailAppointmentCancelledStaff,
   emailAppointmentRescheduled,
+  emailAppointmentUpdated,
 } from "@/lib/email/resend";
 import { loadStudioEmailContext, studioManagerEmails } from "@/lib/email/send";
 import { notifyAdmins } from "@/lib/notifications";
@@ -280,6 +281,81 @@ export async function announceAppointmentRescheduled(
   await sendSmsMany({
     phones: [row.clientPhone],
     body: `Aniekanvas: your ${serviceTitle} moved to ${label}. Manage: ${manageUrl}`,
+  });
+}
+
+export async function announceAppointmentUpdated(
+  db: Database,
+  appointmentId: string,
+  changeLines: string[],
+) {
+  const lines = changeLines.map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return;
+
+  const row = await db.appointment.findUnique({
+    where: { id: appointmentId },
+    include: appointmentInclude,
+  });
+  if (!row || !isStillActive(row.status)) return;
+
+  const settings = await db.siteSettings.findUnique({ where: { id: 1 } });
+  const tz = settings?.timezone || "America/Toronto";
+  const label = whenLabel(row.startsAt, tz);
+  const serviceTitle = appointmentDisplayTitle(row);
+  const manageUrl = await appointmentManageUrl(row.id);
+  const summary = lines.join("; ");
+
+  await emailAppointmentUpdated({
+    db,
+    appointmentId: row.id,
+    to: row.clientEmail,
+    clientName: row.clientName,
+    clientEmail: row.clientEmail,
+    clientPhone: row.clientPhone,
+    serviceTitle,
+    whenLabel: label,
+    staffName: row.staff?.name,
+    categorySlug: row.category.slug,
+    manageUrl,
+    changeLines: lines,
+  });
+
+  await emailStudioStaff(db, row.staff?.email, (to) =>
+    emailAppointmentUpdated({
+      db,
+      appointmentId: row.id,
+      to,
+      clientName: row.clientName,
+      clientEmail: row.clientEmail,
+      clientPhone: row.clientPhone,
+      serviceTitle,
+      whenLabel: label,
+      staffName: row.staff?.name,
+      categorySlug: row.category.slug,
+      changeLines: lines,
+      isStaff: true,
+    }),
+  );
+
+  await notifyAdmins(db, {
+    type: "appointment_updated",
+    title: "Booking updated",
+    body: `${row.clientName} · ${serviceTitle} · ${summary}`,
+    href: "/admin/appointments",
+    includeStaffId: row.staffId,
+    metadata: { appointmentId: row.id, changeLines: lines },
+  });
+
+  await sendSmsMany({
+    phones: await studioAlertPhones(db, row.staff?.phone),
+    body: `Aniekanvas: UPDATED — ${row.clientName}, ${serviceTitle}: ${summary}`.slice(0, 320),
+  });
+  await sendSmsMany({
+    phones: [row.clientPhone],
+    body: `Aniekanvas: your ${serviceTitle} booking was updated (${summary}). Details: ${manageUrl}`.slice(
+      0,
+      320,
+    ),
   });
 }
 
