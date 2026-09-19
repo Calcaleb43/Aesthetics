@@ -1645,11 +1645,6 @@ export function BookingWizard({
             ) : (
               <p>No charge today — your booking will be confirmed immediately.</p>
             )}
-            {totals.paymentMode !== "none" && totals.totalCents > 0 ? (
-              <p className="mt-4 text-sm text-[var(--ink-soft)]">
-                At checkout you can pay by card or Afterpay (where eligible).
-              </p>
-            ) : null}
           </div>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <button type="button" className="btn" onClick={goBack}>
