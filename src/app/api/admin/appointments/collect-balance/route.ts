@@ -7,13 +7,21 @@ import { createBalanceCheckoutSession } from "@/lib/booking/payments";
 import { hasStripe } from "@/lib/booking/stripe";
 import { notifyAdmins } from "@/lib/notifications";
 
+const OFFLINE_METHODS = ["cash", "etransfer", "card"] as const;
+
 const schema = z.object({
   id: z.string().uuid(),
-  method: z.enum(["stripe", "cash"]),
-  /** Optional partial cash amount in dollars; defaults to full remaining balance */
+  method: z.enum(["stripe", "cash", "etransfer", "card"]),
+  /** Optional partial amount in dollars for offline methods; defaults to full remaining balance */
   amount: z.number().positive().optional(),
   note: z.string().max(500).optional(),
 });
+
+const METHOD_LABEL: Record<(typeof OFFLINE_METHODS)[number], string> = {
+  cash: "cash",
+  etransfer: "e-transfer",
+  card: "card at studio",
+};
 
 export async function POST(req: Request) {
   const gate = await requireAdminApi({ permission: "appointments_write" });
@@ -68,7 +76,7 @@ export async function POST(req: Request) {
     });
   }
 
-  // Cash / e-transfer / card-at-studio
+  const method = parsed.data.method;
   const dollars = parsed.data.amount;
   const collectCents =
     dollars != null ? Math.min(balanceDueCents, Math.round(dollars * 100)) : balanceDueCents;
@@ -82,7 +90,8 @@ export async function POST(req: Request) {
     hstRateBps,
   );
 
-  const noteLine = `[Balance ${formatCad(collectCents)} received ${parsed.data.note?.trim() || "cash/studio"}]`;
+  const methodLabel = METHOD_LABEL[method];
+  const noteLine = `[Balance ${formatCad(collectCents)} received ${parsed.data.note?.trim() || methodLabel}]`;
   await gate.db.appointment.update({
     where: { id: row.id },
     data: {
@@ -97,7 +106,7 @@ export async function POST(req: Request) {
       type: "offline_payment",
       amountCents: collectCents,
       taxCents: 0,
-      note: `Balance for ${serviceTitle} — ${row.clientName}`,
+      note: `Balance for ${serviceTitle} — ${row.clientName} (${methodLabel})`,
       appointmentId: row.id,
       clientEmail: row.clientEmail,
       createdById: gate.session.sub,
@@ -107,16 +116,16 @@ export async function POST(req: Request) {
 
   await notifyAdmins(gate.db, {
     type: "balance_collected",
-    title: "Balance collected (cash/studio)",
+    title: `Balance collected (${methodLabel})`,
     body: `${row.clientName} · ${formatCad(collectCents)} · ${serviceTitle}`,
-    href: "/admin/appointments",
+    href: "/admin/payments",
     includeStaffId: row.staffId,
-    metadata: { appointmentId: row.id, amountCents: collectCents },
+    metadata: { appointmentId: row.id, amountCents: collectCents, method },
   });
 
   return NextResponse.json({
     ok: true,
-    method: "cash",
+    method,
     collectedCents: collectCents,
     collectedLabel: formatCad(collectCents),
     remainingCents: remaining,

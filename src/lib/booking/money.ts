@@ -23,7 +23,7 @@ export function taxOn(amountCents: number, hstRateBps: number) {
   return Math.round((amountCents * hstRateBps) / 10000);
 }
 
-/** Remaining amount (incl. HST) still owed on a deposit booking. */
+/** Remaining amount (incl. HST) still owed on deposit or pay-at-studio bookings. */
 export function estimateBalanceDueCents(
   row: {
     status: string;
@@ -35,7 +35,8 @@ export function estimateBalanceDueCents(
   hstRateBps = 1300,
 ) {
   if (row.status === "cancelled" || row.status === "expired" || row.status === "no_show") return 0;
-  if (row.paymentMode !== "deposit") return 0;
+  // deposit = remainder after online deposit; none = full amount due at studio
+  if (row.paymentMode !== "deposit" && row.paymentMode !== "none") return 0;
   const serviceNet = Math.max(0, row.priceCents - (row.discountCents || 0));
   const totalOwedCents = serviceNet + taxOn(serviceNet, hstRateBps);
   return Math.max(0, totalOwedCents - Math.max(0, row.amountChargedCents));

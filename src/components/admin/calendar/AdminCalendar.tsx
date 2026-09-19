@@ -555,7 +555,7 @@ export function AdminCalendar({
     load();
   }
 
-  async function collectBalance(method: "stripe" | "cash") {
+  async function collectBalance(method: "stripe" | "cash" | "etransfer" | "card") {
     if (!canWrite || !selected) return;
     setSaving(true);
     setError("");
@@ -1260,9 +1260,9 @@ export function AdminCalendar({
                         <span className={editPaymentPreview?.balanceDueCents ? "text-[#c6a75e]" : "text-white/70"}>
                           {editPaymentPreview?.balanceDueLabel || formatCad(0)}
                         </span>
-                        {form.paymentMode !== "deposit" ? (
+                        {form.paymentMode !== "deposit" && form.paymentMode !== "none" ? (
                           <span className="block mt-1 text-white/35">
-                            Balance is tracked for deposit bookings only.
+                            Balance is tracked for deposit and pay-at-studio bookings.
                           </span>
                         ) : null}
                       </p>
@@ -1385,9 +1385,31 @@ export function AdminCalendar({
                           className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
                           onClick={() => void collectBalance("cash")}
                         >
-                          Cash / studio paid
+                          Cash
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
+                          onClick={() => void collectBalance("etransfer")}
+                        >
+                          E-transfer
+                        </button>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          className="rounded-full border border-white/15 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.12em] text-white/70 transition hover:bg-white/5"
+                          onClick={() => void collectBalance("card")}
+                        >
+                          Card at studio
                         </button>
                       </div>
+                      <a
+                        href="/admin/payments"
+                        className="inline-block text-xs text-[#c6a75e] underline"
+                      >
+                        All pending payments
+                      </a>
                     </div>
                   ) : null}
                   <div className="flex flex-wrap gap-2">
