@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { addDays, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { addDays, addMonths, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import { formatCad, multiChargeBreakdown, taxOn } from "@/lib/booking/money";
 import { applyDiscountToCharge } from "@/lib/booking/coupons";
 
@@ -90,6 +90,8 @@ export function BookingWizard({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [loadingDates, setLoadingDates] = useState(false);
+  const [seekingNextMonth, setSeekingNextMonth] = useState(false);
+  const monthSeekLimitRef = useRef<Date | null>(null);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -499,11 +501,13 @@ export function BookingWizard({
     if (!selectionComplete) {
       setAvailableDates([]);
       setStaffOptions([]);
+      setSeekingNextMonth(false);
+      monthSeekLimitRef.current = null;
       return;
     }
     let cancelled = false;
+    setLoadingDates(true);
     (async () => {
-      setLoadingDates(true);
       try {
         const params = new URLSearchParams({
           datesOnly: "1",
@@ -531,6 +535,31 @@ export function BookingWizard({
       cancelled = true;
     };
   }, [selectionComplete, bookingItems, selectedAddonIds, month, preferredStaffId]);
+
+  // If the visible month has no remaining open days, jump ahead to the next month that does.
+  useEffect(() => {
+    if (!selectionComplete || loadingDates) return;
+
+    const todayKey = format(new Date(), "yyyy-MM-dd");
+    const hasOpenDays = availableDates.some((key) => key >= todayKey);
+    if (hasOpenDays) {
+      monthSeekLimitRef.current = null;
+      setSeekingNextMonth(false);
+      return;
+    }
+
+    const limit = monthSeekLimitRef.current ?? addMonths(startOfMonth(new Date()), 6);
+    monthSeekLimitRef.current = limit;
+    const nextMonth = startOfMonth(addMonths(month, 1));
+    if (nextMonth > limit) {
+      monthSeekLimitRef.current = null;
+      setSeekingNextMonth(false);
+      return;
+    }
+
+    setSeekingNextMonth(true);
+    setMonth(nextMonth);
+  }, [selectionComplete, loadingDates, availableDates, month]);
 
   useEffect(() => {
     if (!selectionComplete || !selectedDay) {
@@ -1120,8 +1149,14 @@ export function BookingWizard({
             })}
           </div>
           <p className="mt-4 text-xs text-[var(--ink-soft)]">
-            {loadingDates ? "Checking open days…" : "Only dates with open times are selectable."} Times in{" "}
-            {timezone.replace(/_/g, " ")}.
+            {loadingDates || seekingNextMonth
+              ? seekingNextMonth
+                ? "No open days this month — checking the next available month…"
+                : "Checking open days…"
+              : availableDates.some((key) => key >= format(new Date(), "yyyy-MM-dd"))
+                ? "Only dates with open times are selectable."
+                : "No open dates found in the next several months. Try different services or check back later."}{" "}
+            Times in {timezone.replace(/_/g, " ")}.
           </p>
           <NavFooter
             continueLabel="Continue"
