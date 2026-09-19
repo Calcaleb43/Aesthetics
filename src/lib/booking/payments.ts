@@ -1,8 +1,80 @@
+import type Stripe from "stripe";
 import { formatCad } from "@/lib/booking/money";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 
 export const PAYMENT_PROVIDERS = ["stripe", "none"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+/** Hosted Checkout methods: card + Afterpay/Clearpay (CAD). Enable Afterpay in Stripe Dashboard too. */
+export const STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] =
+  ["card", "afterpay_clearpay"];
+
+/** Shared options so Afterpay/Clearpay appears on Stripe Checkout (needs address for BNPL eligibility). */
+export function stripeCheckoutBnplOptions(): Pick<
+  Stripe.Checkout.SessionCreateParams,
+  | "payment_method_types"
+  | "billing_address_collection"
+  | "phone_number_collection"
+  | "shipping_address_collection"
+> {
+  return {
+    payment_method_types: [...STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES],
+    billing_address_collection: "required",
+    phone_number_collection: { enabled: true },
+    // Afterpay/Clearpay requires a shipping address even for services
+    shipping_address_collection: {
+      allowed_countries: ["CA", "US"],
+    },
+  };
+}
+
+/** Card-only fallback when Afterpay is not activated on the Stripe account. */
+export function stripeCheckoutCardOnlyOptions(): Pick<
+  Stripe.Checkout.SessionCreateParams,
+  "payment_method_types" | "billing_address_collection"
+> {
+  return {
+    payment_method_types: ["card"],
+    billing_address_collection: "required",
+  };
+}
+
+function isAfterpayUnavailableError(err: unknown) {
+  const message =
+    err && typeof err === "object" && "message" in err
+      ? String((err as { message?: unknown }).message || "")
+      : String(err || "");
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("afterpay") ||
+    lower.includes("clearpay") ||
+    lower.includes("payment_method_types") ||
+    lower.includes("payment method type")
+  );
+}
+
+/** Create a Checkout session with Afterpay when available; fall back to card-only. */
+export async function createStripeCheckoutSession(
+  params: Stripe.Checkout.SessionCreateParams,
+): Promise<Stripe.Checkout.Session> {
+  const stripe = getStripe();
+  try {
+    return await stripe.checkout.sessions.create({
+      ...params,
+      ...stripeCheckoutBnplOptions(),
+    });
+  } catch (err) {
+    if (!isAfterpayUnavailableError(err)) throw err;
+    console.warn(
+      "[stripe] Afterpay unavailable on this account; falling back to card-only checkout",
+      err instanceof Error ? err.message : err,
+    );
+    return stripe.checkout.sessions.create({
+      ...params,
+      ...stripeCheckoutCardOnlyOptions(),
+    });
+  }
+}
 
 export function isPaymentProvider(value: string): value is PaymentProvider {
   return (PAYMENT_PROVIDERS as readonly string[]).includes(value);
@@ -84,7 +156,7 @@ export async function createBookingCheckoutSession(input: CheckoutSessionInput):
         ? `Booking deposit — ${input.serviceLabel}`
         : `Booking payment — ${input.serviceLabel}`;
 
-    const session = await getStripe().checkout.sessions.create({
+    const session = await createStripeCheckoutSession({
       mode: "payment",
       customer_email: input.clientEmail,
       line_items: [
@@ -134,7 +206,7 @@ export async function createBalanceCheckoutSession(input: {
     throw new Error("No balance due");
   }
 
-  const session = await getStripe().checkout.sessions.create({
+  const session = await createStripeCheckoutSession({
     mode: "payment",
     customer_email: input.clientEmail,
     line_items: [

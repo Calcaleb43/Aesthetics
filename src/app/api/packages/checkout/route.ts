@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { upsertClient } from "@/lib/booking/clients";
 import { formatCad, taxOn } from "@/lib/booking/money";
-import { stripeCheckoutBnplOptions } from "@/lib/booking/payments";
-import { hasStripe, getStripe, siteUrl } from "@/lib/booking/stripe";
+import { createStripeCheckoutSession } from "@/lib/booking/payments";
+import { hasStripe, siteUrl } from "@/lib/booking/stripe";
 import { getSettings } from "@/lib/content/queries";
 import { getPrisma, hasDatabase } from "@/lib/db";
 
@@ -52,10 +52,9 @@ export async function POST(req: Request) {
   const totalCents = baseCents + taxCents;
 
   try {
-    const session = await getStripe().checkout.sessions.create({
+    const session = await createStripeCheckoutSession({
       mode: "payment",
       customer_email: clientEmail,
-      ...stripeCheckoutBnplOptions(),
       line_items: [
         {
           quantity: 1,
