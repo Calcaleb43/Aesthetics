@@ -138,7 +138,8 @@ Reply anytime if you have questions — {{studioEmail}} · {{studioPhone}}.`,
   {
     slug: "appointment_booked",
     name: "Booking confirmed (auto)",
-    description: "Client confirmation after booking. Details, payment, and manage buttons stay fixed.",
+    description:
+      "Client email after a booking is fully confirmed (or deposit paid). Does not apply to unpaid payment-hold emails.",
     subject: "Booking confirmed — {{serviceTitle}}",
     body: `Hi {{name}},
 

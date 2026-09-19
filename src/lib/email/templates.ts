@@ -1,5 +1,6 @@
 import { formatCad } from "@/lib/booking/money";
 import { siteUrl } from "@/lib/booking/stripe";
+import { PENDING_HOLD_MINUTES } from "@/lib/booking/availability";
 import {
   DEFAULT_STUDIO,
   emailButton,
@@ -38,7 +39,8 @@ export const EMAIL_TEMPLATE_META: Record<
 > = {
   appointment_booked: {
     label: "Booking confirmed",
-    description: "Sent to the client when an appointment is confirmed.",
+    description:
+      "Sent when a booking is confirmed (or deposit paid). Unpaid payment-hold emails use fixed pay-to-confirm copy.",
     audience: "client",
   },
   appointment_booked_staff: {
@@ -174,36 +176,42 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
       : `Booking confirmed — ${vars.serviceTitle}`;
   const defaultIntro = needsPayment
     ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
-        <p style="margin:0;">Your appointment time is held — finish payment to confirm.</p>`
+        <p style="margin:0;">Your appointment time is held for <strong>${PENDING_HOLD_MINUTES} minutes</strong> while you finish payment. It is not confirmed until payment is completed.</p>`
     : isDeposit
       ? `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">Your deposit is confirmed. The remaining balance is due before or at your visit.</p>`
       : `<p style="margin:0 0 12px;">Hi ${escapeHtml(vars.clientName)},</p>
         <p style="margin:0;">Your appointment is confirmed. We look forward to seeing you at the studio.</p>`;
 
+  // CMS "Booking confirmed" overrides must not rewrite unpaid hold emails.
+  const subject =
+    needsPayment ? defaultSubject : vars.copyOverride?.subject || defaultSubject;
+  const introHtml =
+    needsPayment ? defaultIntro : vars.copyOverride?.introHtml || defaultIntro;
+
   return {
-    subject: vars.copyOverride?.subject || defaultSubject,
+    subject,
     preheader: needsPayment
-      ? `Pay to confirm ${vars.serviceTitle} on ${vars.whenLabel}`
+      ? `Pay within ${PENDING_HOLD_MINUTES} minutes to confirm ${vars.serviceTitle} on ${vars.whenLabel}`
       : isDeposit
         ? `Deposit paid · balance due ${balanceDue}`
         : `${vars.serviceTitle} on ${vars.whenLabel}`,
     html: renderEmailLayout({
       studio,
-      eyebrow: needsPayment ? "Payment" : isDeposit ? "Deposit" : "Confirmed",
-      title: needsPayment ? "Complete your booking" : isDeposit ? "Deposit received" : "You're booked",
-      introHtml: vars.copyOverride?.introHtml || defaultIntro,
+      eyebrow: needsPayment ? "Payment required" : isDeposit ? "Deposit" : "Confirmed",
+      title: needsPayment ? "Complete payment to confirm" : isDeposit ? "Deposit received" : "You're booked",
+      introHtml,
       detailRows: [
         { label: "Service", value: vars.serviceTitle },
         { label: "When", value: vars.whenLabel },
         ...(vars.staffName ? [{ label: "With", value: vars.staffName }] : []),
         ...(paid
-          ? [{ label: needsPayment ? "Amount due" : isDeposit ? "Deposit paid" : "Paid", value: paid }]
+          ? [{ label: needsPayment ? "Amount due now" : isDeposit ? "Deposit paid" : "Paid", value: paid }]
           : []),
         ...(balanceDue && !needsPayment ? [{ label: "Balance due", value: balanceDue }] : []),
       ],
       bodyHtml: needsPayment
-        ? `<p style="margin:0;">Use the button below to pay securely. Your hold may expire if payment is not completed.</p>`
+        ? `<p style="margin:0;">Use the button below to pay securely. This hold expires in <strong>${PENDING_HOLD_MINUTES} minutes</strong> if payment is not completed.</p>`
         : `<p style="margin:0 0 12px;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>
         ${
           balanceDue

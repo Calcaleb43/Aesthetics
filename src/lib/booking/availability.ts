@@ -124,7 +124,7 @@ export function computeAvailableSlots(input: AvailabilityInput): Slot[] {
   });
 }
 
-export const PENDING_HOLD_MINUTES = 30;
+export const PENDING_HOLD_MINUTES = 5;
 
 export function activeHoldStatuses() {
   return ["pending_payment", "confirmed"] as const;
