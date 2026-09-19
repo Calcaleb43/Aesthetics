@@ -497,7 +497,8 @@ model Coupon {
   @@map("coupons")
 }
 
-/// Extra open hours for selected services + staff on a calendar day, optionally tied to a coupon.
+/// Extra open hours for selected services + staff on a calendar day.
+/// Discount via linked coupon (percent or fixed $) and/or per-service promo prices.
 model PromoDay {
   id        String            @id @default(uuid()) @db.Uuid
   /// Calendar date in studio timezone as YYYY-MM-DD
@@ -522,11 +523,13 @@ model PromoDay {
 }
 
 model PromoDayService {
-  id         String   @id @default(uuid()) @db.Uuid
-  promoDayId String   @map("promo_day_id") @db.Uuid
-  promoDay   PromoDay @relation(fields: [promoDayId], references: [id], onDelete: Cascade)
-  serviceId  String   @map("service_id") @db.Uuid
-  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid()) @db.Uuid
+  promoDayId     String   @map("promo_day_id") @db.Uuid
+  promoDay       PromoDay @relation(fields: [promoDayId], references: [id], onDelete: Cascade)
+  serviceId      String   @map("service_id") @db.Uuid
+  service        Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  /// Optional reduced base price for this service on the promo day (cents). Null = use regular price (+ coupon if linked).
+  promoPriceCents Int?    @map("promo_price_cents")
 
   @@unique([promoDayId, serviceId])
   @@index([serviceId])

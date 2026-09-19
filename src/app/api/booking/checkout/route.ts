@@ -18,7 +18,7 @@ import {
 } from "@/lib/booking/service";
 import { applyDiscountToCharge, validateCoupon } from "@/lib/booking/coupons";
 import { createBookingCheckoutSession, normalizePaymentProvider, paymentProviderConfigured } from "@/lib/booking/payments";
-import { dateKeyInTimezone, findMatchingPromoDay } from "@/lib/booking/promo-days";
+import { dateKeyInTimezone, discountForPromoDay, findMatchingPromoDay } from "@/lib/booking/promo-days";
 import { siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
@@ -249,9 +249,8 @@ export async function POST(req: Request) {
   let discountCents = 0;
   let couponCode: string | null = null;
 
-  // Promo day linked coupon auto-applies for matching date + staff + services
+  // Promo day: per-service base prices and/or linked coupon (percent or fixed $)
   const bookingDateKey = dateKeyInTimezone(startsAt, settings.timezone);
-  let dayPromoCode: string | null = null;
   if (staffId) {
     const dayPromos = await db.promoDay.findMany({
       where: {
@@ -260,10 +259,9 @@ export async function POST(req: Request) {
         date: bookingDateKey,
         staffId,
         services: { some: { serviceId: { in: serviceIds } } },
-        couponId: { not: null },
       },
       include: {
-        services: { select: { serviceId: true } },
+        services: { select: { serviceId: true, promoPriceCents: true } },
         coupon: true,
       },
     });
@@ -276,6 +274,9 @@ export async function POST(req: Request) {
         active: r.active,
         windows: r.windows,
         serviceIds: r.services.map((s) => s.serviceId),
+        servicePrices: Object.fromEntries(
+          r.services.map((s) => [s.serviceId, s.promoPriceCents]),
+        ),
         coupon: r.coupon
           ? {
               id: r.coupon.id,
@@ -288,14 +289,33 @@ export async function POST(req: Request) {
       })),
       { dateKey: bookingDateKey, staffId, serviceIds },
     );
-    dayPromoCode = match?.coupon?.code || null;
+
+    if (match) {
+      const priced = discountForPromoDay({
+        promo: match,
+        fullSubtotalCents: rawCharge.priceCents,
+        lines: lines.map((l) => ({
+          serviceId: l.serviceId,
+          priceCents: l.priceCents,
+          quantity: l.quantity,
+        })),
+      });
+      if (priced.discountCents > 0) {
+        discountCents = priced.discountCents;
+        couponCode = priced.code === "PROMO-DAY" ? priced.code : priced.code;
+      } else if (match.coupon?.code) {
+        const validated = await validateCoupon(db, match.coupon.code, rawCharge.priceCents);
+        if (validated.ok) {
+          discountCents = validated.discountCents;
+          couponCode = validated.coupon.code;
+        }
+      }
+    }
   }
 
-  const promoToApply = dayPromoCode || parsed.data.promoCode?.trim() || "";
-  if (promoToApply) {
-    const validated = await validateCoupon(db, promoToApply, rawCharge.priceCents);
+  if (!discountCents && parsed.data.promoCode?.trim()) {
+    const validated = await validateCoupon(db, parsed.data.promoCode, rawCharge.priceCents);
     if (!validated.ok) {
-      // Manual code failed; if day promo also failed, error. If only manual failed but we had day promo, already used day.
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     discountCents = validated.discountCents;
@@ -427,11 +447,11 @@ export async function POST(req: Request) {
     }
   }
 
-  if (couponCode) {
+  if (couponCode && couponCode !== "PROMO-DAY") {
     await db.coupon.update({
       where: { code: couponCode },
       data: { redeemedCount: { increment: 1 } },
-    });
+    }).catch(() => undefined);
   }
 
   if (instantlyConfirmed) {

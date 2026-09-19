@@ -65,6 +65,7 @@ type Slot = {
     type: string;
     amount: number;
     label: string;
+    discountCents?: number;
   } | null;
 };
 type StaffOption = { id: string; name: string };
@@ -331,13 +332,17 @@ export function BookingWizard({
       (s) => s.start === slotStart && (s.staffId ?? null) === (slotStaffId ?? null),
     );
     if (!slot?.promo) return;
-    const discountCents = discountCentsForSubtotal(totals.priceCents, slot.promo);
-    setPromoCode(slot.promo.code);
+    const discountCents =
+      slot.promo.discountCents ??
+      (slot.promo.type === "percent" || slot.promo.type === "fixed"
+        ? discountCentsForSubtotal(totals.priceCents, slot.promo)
+        : 0);
+    setPromoCode(slot.promo.code === "PROMO-DAY" ? "" : slot.promo.code);
     setPromoApplied({
       code: slot.promo.code,
       discountCents,
       discountLabel: formatCad(discountCents),
-      label: `Promo day · ${couponLabel(slot.promo)}`,
+      label: slot.promo.label || `Promo day · ${couponLabel(slot.promo)}`,
       source: "promo_day",
     });
   }, [
@@ -766,13 +771,17 @@ export function BookingWizard({
     setSlotStaffId(slot.staffId ?? null);
     setError("");
     if (slot.promo && !clientPackageId) {
-      const discountCents = discountCentsForSubtotal(totals.priceCents, slot.promo);
-      setPromoCode(slot.promo.code);
+      const discountCents =
+        slot.promo.discountCents ??
+        (slot.promo.type === "percent" || slot.promo.type === "fixed"
+          ? discountCentsForSubtotal(totals.priceCents, slot.promo)
+          : 0);
+      setPromoCode(slot.promo.code === "PROMO-DAY" ? "" : slot.promo.code);
       setPromoApplied({
         code: slot.promo.code,
         discountCents,
         discountLabel: formatCad(discountCents),
-        label: `Promo day · ${couponLabel(slot.promo)}`,
+        label: slot.promo.label || `Promo day · ${couponLabel(slot.promo)}`,
         source: "promo_day",
       });
     } else if (promoApplied?.source === "promo_day") {
@@ -1255,7 +1264,10 @@ export function BookingWizard({
                         const promoHint = slot.promo
                           ? formatPromoDiscountLabel(
                               slot.promo,
-                              discountCentsForSubtotal(totals.priceCents, slot.promo),
+                              slot.promo.discountCents ??
+                                (slot.promo.type === "percent" || slot.promo.type === "fixed"
+                                  ? discountCentsForSubtotal(totals.priceCents, slot.promo)
+                                  : 0),
                             )
                           : null;
                         return (

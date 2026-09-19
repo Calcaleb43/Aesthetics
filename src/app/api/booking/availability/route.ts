@@ -213,7 +213,7 @@ export async function GET(req: Request) {
             services: { some: { serviceId: { in: serviceIds } } },
           },
           include: {
-            services: { select: { serviceId: true } },
+            services: { select: { serviceId: true, promoPriceCents: true } },
             coupon: {
               select: {
                 id: true,
@@ -255,6 +255,9 @@ export async function GET(req: Request) {
         active: r.active,
         windows: r.windows,
         serviceIds: r.services.map((s) => s.serviceId),
+        servicePrices: Object.fromEntries(
+          r.services.map((s) => [s.serviceId, s.promoPriceCents]),
+        ),
         coupon,
       };
     });
@@ -394,7 +397,19 @@ export async function GET(req: Request) {
       ),
     ].sort();
 
-    const slotsWithPromo = attachPromoToSlots(slots, promoDays, serviceIds, settings.timezone);
+    const slotsWithPromo = attachPromoToSlots(
+      slots,
+      promoDays,
+      serviceIds,
+      settings.timezone,
+      lines.map((l) => ({
+        serviceId: l.serviceId,
+        priceCents: l.priceCents,
+        quantity: l.quantity,
+      })),
+      lines.reduce((sum, l) => sum + l.priceCents, 0) +
+        addons.reduce((sum, a) => sum + a.priceCents, 0),
+    );
 
     if (datesOnly) {
       return NextResponse.json({

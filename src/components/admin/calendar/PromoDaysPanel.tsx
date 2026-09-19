@@ -2,6 +2,15 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
+type ServiceRow = {
+  id: string;
+  title: string;
+  regularPriceCents?: number;
+  regularPriceLabel?: string;
+  promoPriceCents: number | null;
+  promoPriceLabel?: string | null;
+};
+
 type PromoDayItem = {
   id: string;
   date: string;
@@ -10,15 +19,39 @@ type PromoDayItem = {
   couponId: string | null;
   couponCode: string | null;
   couponName: string | null;
+  couponType?: string | null;
   closed: boolean;
   windows: { start: string; end: string }[];
   note: string;
   active: boolean;
   serviceIds: string[];
-  services: { id: string; title: string }[];
+  services: ServiceRow[];
 };
 
-type Option = { id: string; name?: string; title?: string; code?: string };
+type Option = {
+  id: string;
+  name?: string;
+  title?: string;
+  code?: string;
+  type?: string;
+  amount?: number;
+  priceCents?: number;
+  priceLabel?: string;
+};
+
+function dollarsFromCents(cents: number | null | undefined) {
+  if (cents == null || Number.isNaN(cents)) return "";
+  const d = cents / 100;
+  return Number.isInteger(d) ? String(d) : d.toFixed(2);
+}
+
+function centsFromDollars(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const n = Number(t);
+  if (Number.isNaN(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
 
 export function PromoDaysPanel({
   canWrite = true,
@@ -45,7 +78,9 @@ export function PromoDaysPanel({
   const [end, setEnd] = useState("18:00");
   const [note, setNote] = useState("");
   const [active, setActive] = useState(true);
-  const [serviceIds, setServiceIds] = useState<string[]>([]);
+  /** serviceId → promo price dollars string (empty = no override) */
+  const [servicePrices, setServicePrices] = useState<Record<string, string>>({});
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
 
   async function load() {
     try {
@@ -91,7 +126,8 @@ export function PromoDaysPanel({
     setEnd("18:00");
     setNote("");
     setActive(true);
-    setServiceIds([]);
+    setSelectedServiceIds([]);
+    setServicePrices({});
     setModalOpen(true);
   }
 
@@ -104,12 +140,27 @@ export function PromoDaysPanel({
     setEnd(row.windows[0]?.end || "18:00");
     setNote(row.note || "");
     setActive(row.active);
-    setServiceIds(row.serviceIds || []);
+    setSelectedServiceIds(row.serviceIds || []);
+    const prices: Record<string, string> = {};
+    for (const s of row.services || []) {
+      prices[s.id] = dollarsFromCents(s.promoPriceCents);
+    }
+    setServicePrices(prices);
     setModalOpen(true);
   }
 
   function toggleService(id: string) {
-    setServiceIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setSelectedServiceIds((prev) => {
+      if (prev.includes(id)) {
+        setServicePrices((p) => {
+          const next = { ...p };
+          delete next[id];
+          return next;
+        });
+        return prev.filter((x) => x !== id);
+      }
+      return [...prev, id];
+    });
   }
 
   async function onSubmit(e: FormEvent) {
@@ -119,14 +170,21 @@ export function PromoDaysPanel({
       setStatus("Select staff for this promo day");
       return;
     }
-    if (!serviceIds.length) {
+    if (!selectedServiceIds.length) {
       setStatus("Select at least one service");
       return;
     }
-    if (!couponId) {
-      setStatus("Select a coupon — promo days apply that discount to the services");
+
+    const servicesPayload = selectedServiceIds.map((serviceId) => ({
+      serviceId,
+      promoPriceCents: centsFromDollars(servicePrices[serviceId] || ""),
+    }));
+    const hasPrices = servicesPayload.some((s) => s.promoPriceCents != null);
+    if (!couponId && !hasPrices) {
+      setStatus("Add a coupon and/or set a promo price on at least one service");
       return;
     }
+
     setSaving(true);
     setStatus("");
     const res = await fetch("/api/admin/promo-days", {
@@ -141,7 +199,7 @@ export function PromoDaysPanel({
         windows: [{ start, end }],
         note,
         active,
-        serviceIds,
+        services: servicesPayload,
       }),
     });
     setSaving(false);
@@ -175,8 +233,8 @@ export function PromoDaysPanel({
         <div>
           <h2 className="text-lg font-semibold text-white">Promo days</h2>
           <p className="mt-1 text-sm text-white/50">
-            Open selected services with specific staff on a calendar day and attach a coupon. Clients
-            get that reduced price automatically when they book those services on this day.
+            Extra hours for selected services and staff. Reduce price with a coupon (percent or fixed
+            $) and/or a custom promo price per service.
           </p>
         </div>
         {canWrite ? (
@@ -204,10 +262,18 @@ export function PromoDaysPanel({
               <p className="text-white/50">
                 {r.windows.map((w) => `${w.start}–${w.end}`).join(", ") || "No hours"}
                 {r.staffName ? ` · ${r.staffName}` : ""}
-                {r.couponCode ? ` · promo ${r.couponCode}` : ""}
+                {r.couponCode
+                  ? ` · coupon ${r.couponCode}${r.couponType === "fixed" ? " (fixed $)" : r.couponType === "percent" ? " (%)" : ""}`
+                  : ""}
               </p>
               <p className="mt-1 text-xs text-white/40">
-                {r.services.map((s) => s.title).join(", ") || "No services"}
+                {r.services
+                  .map((s) =>
+                    s.promoPriceLabel
+                      ? `${s.title} ${s.regularPriceLabel || ""} → ${s.promoPriceLabel}`
+                      : s.title,
+                  )
+                  .join(", ") || "No services"}
                 {r.note ? ` · ${r.note}` : ""}
               </p>
             </div>
@@ -276,24 +342,28 @@ export function PromoDaysPanel({
                 </select>
               </label>
               <label className="grid gap-1 text-sm text-white/70">
-                Linked coupon (required for discount)
+                Coupon (optional — percent or fixed $)
                 <select
                   className="admin-input"
                   value={couponId}
                   onChange={(e) => setCouponId(e.target.value)}
-                  required
                 >
-                  <option value="">Select coupon</option>
+                  <option value="">None — use service promo prices only</option>
                   {coupons.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.code}
+                      {c.type === "percent"
+                        ? ` (−${((c.amount || 0) / 100).toFixed((c.amount || 0) % 100 === 0 ? 0 : 2)}%)`
+                        : c.type === "fixed"
+                          ? ` (−$${((c.amount || 0) / 100).toFixed(2)})`
+                          : ""}
                       {c.name ? ` — ${c.name}` : ""}
                     </option>
                   ))}
                 </select>
                 <span className="text-xs text-white/40">
-                  This coupon&apos;s discount is applied automatically when clients book these services
-                  on this day.
+                  Create coupons under Coupons. Fixed = dollar off; percent = % off. Or set promo
+                  prices below.
                 </span>
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -319,22 +389,47 @@ export function PromoDaysPanel({
                 </label>
               </div>
               <fieldset className="grid gap-2 text-sm text-white/70">
-                <legend>Services on this promo day</legend>
-                <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">
+                <legend>Services &amp; promo prices</legend>
+                <p className="text-xs text-white/40">
+                  Check a service to include it. Optional promo price (CAD) sets a reduced base price
+                  for that service on this day.
+                </p>
+                <div className="max-h-56 space-y-3 overflow-y-auto rounded-lg border border-white/10 p-3">
                   {services.map((s) => {
-                    const id = s.id;
-                    const label = s.title || s.name || id;
-                    const checked = serviceIds.includes(id);
+                    const checked = selectedServiceIds.includes(s.id);
                     return (
-                      <label key={id} className="flex items-start gap-2 text-sm text-white/80">
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={checked}
-                          onChange={() => toggleService(id)}
-                        />
-                        <span>{label}</span>
-                      </label>
+                      <div key={s.id} className="grid gap-1 border-b border-white/5 pb-3 last:border-0 last:pb-0">
+                        <label className="flex items-start gap-2 text-sm text-white/80">
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            onChange={() => toggleService(s.id)}
+                          />
+                          <span>
+                            {s.title || s.name}
+                            <span className="mt-0.5 block text-xs text-white/40">
+                              Regular {s.priceLabel || "—"}
+                            </span>
+                          </span>
+                        </label>
+                        {checked ? (
+                          <label className="ml-6 grid gap-1 text-xs text-white/55">
+                            Promo price (CAD, optional)
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              className="admin-input"
+                              placeholder="e.g. 120"
+                              value={servicePrices[s.id] || ""}
+                              onChange={(e) =>
+                                setServicePrices((prev) => ({ ...prev, [s.id]: e.target.value }))
+                              }
+                            />
+                          </label>
+                        ) : null}
+                      </div>
                     );
                   })}
                   {!services.length ? (
