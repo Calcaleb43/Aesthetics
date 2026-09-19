@@ -56,9 +56,9 @@ type ResolvedLine = {
 type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
 type StaffOption = { id: string; name: string };
 
-type StepName = "Services" | "Add-ons" | "Date" | "Time" | "Details" | "Review" | "Pay";
+type StepName = "Services" | "Add-ons" | "Date & time" | "Details" | "Review" | "Pay";
 
-const ALL_STEPS: StepName[] = ["Services", "Add-ons", "Date", "Time", "Details", "Review", "Pay"];
+const ALL_STEPS: StepName[] = ["Services", "Add-ons", "Date & time", "Details", "Review", "Pay"];
 
 function serviceHasVariants(s: BookableService) {
   return Boolean(s.hasVariants || (s.variants && s.variants.length > 0));
@@ -402,13 +402,15 @@ export function BookingWizard({
         return false;
       }
     }
-    if (leaving === "Date" && !selectedDay) {
-      setError("Pick a date to continue.");
-      return false;
-    }
-    if (leaving === "Time" && !slotStart) {
-      setError("Pick a time to continue.");
-      return false;
+    if (leaving === "Date & time") {
+      if (!selectedDay) {
+        setError("Pick a date to continue.");
+        return false;
+      }
+      if (!slotStart) {
+        setError("Pick a time to continue.");
+        return false;
+      }
     }
     if (leaving === "Details") {
       if (!name.trim() || !email.trim() || !phone.trim()) {
@@ -445,14 +447,17 @@ export function BookingWizard({
     if (index < step) return true;
     if (index > furthest) return false;
     const target = steps[index];
-    if (target === "Add-ons" || target === "Date" || target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
+    if (
+      target === "Add-ons" ||
+      target === "Date & time" ||
+      target === "Details" ||
+      target === "Review" ||
+      target === "Pay"
+    ) {
       if (!selectionComplete) return false;
     }
-    if (target === "Time" || target === "Details" || target === "Review" || target === "Pay") {
-      if (!selectedDay) return false;
-    }
     if (target === "Details" || target === "Review" || target === "Pay") {
-      if (!slotStart) return false;
+      if (!selectedDay || !slotStart) return false;
     }
     if (target === "Review" || target === "Pay") {
       if (!isFullLegalName(name) || !email.trim() || !phone.trim() || !policyAccepted) return false;
@@ -710,15 +715,12 @@ export function BookingWizard({
     setSlotStart("");
     setSlotStaffId(null);
     setError("");
-    const timeIdx = steps.indexOf("Time");
-    setStepIndex(timeIdx);
   }
 
   function selectSlot(slot: Slot) {
     setSlotStart(slot.start);
     setSlotStaffId(slot.staffId ?? null);
     setError("");
-    setStepIndex(steps.indexOf("Details"));
   }
 
   function submitCheckout() {
@@ -1046,7 +1048,7 @@ export function BookingWizard({
         </div>
       )}
 
-      {stepName === "Date" && (
+      {stepName === "Date & time" && (
         <div>
           {staffOptions.length > 0 ? (
             <div className="mb-5">
@@ -1058,6 +1060,7 @@ export function BookingWizard({
                     setPreferredStaffId(null);
                     setSelectedDay(null);
                     setSlotStart("");
+                    setSlotStaffId(null);
                   }}
                   className={`rounded-full border px-4 py-2 text-sm transition ${
                     !preferredStaffId ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
@@ -1073,6 +1076,7 @@ export function BookingWizard({
                       setPreferredStaffId(s.id);
                       setSelectedDay(null);
                       setSlotStart("");
+                      setSlotStaffId(null);
                     }}
                     className={`rounded-full border px-4 py-2 text-sm transition ${
                       preferredStaffId === s.id
@@ -1086,165 +1090,145 @@ export function BookingWizard({
               </div>
             </div>
           ) : null}
-          <div className="mb-4 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-              onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
-            >
-              Prev
-            </button>
-            <p className="min-w-[9rem] text-center text-sm font-semibold">{format(month, "MMMM yyyy")}</p>
-            <button
-              type="button"
-              className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-              onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
-            >
-              Next
-            </button>
-          </div>
-          <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] uppercase tracking-[0.08em] text-[var(--ink-soft)] sm:gap-2 sm:text-xs sm:tracking-[0.12em]">
-            {[
-              ["S", "Sun"],
-              ["M", "Mon"],
-              ["T", "Tue"],
-              ["W", "Wed"],
-              ["T", "Thu"],
-              ["F", "Fri"],
-              ["S", "Sat"],
-            ].map(([short, full]) => (
-              <span key={full}>
-                <span className="sm:hidden">{short}</span>
-                <span className="hidden sm:inline">{full}</span>
-              </span>
-            ))}
-          </div>
-          <div className="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
-            {Array.from({ length: daysInMonth[0].getDay() }).map((_, i) => (
-              <span key={`pad-${i}`} />
-            ))}
-            {daysInMonth.map((day) => {
-              const key = format(day, "yyyy-MM-dd");
-              const active = selectedDay === key;
-              const past = day < new Date(new Date().toDateString());
-              const open = availableDates.includes(key);
-              const disabled = past || (!open && !loadingDates);
-              return (
+
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
+            <div>
+              <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[var(--ink-soft)]">Date</p>
+              <div className="mb-4 flex items-center justify-end gap-2">
                 <button
-                  key={key}
                   type="button"
-                  disabled={disabled}
-                  onClick={() => selectDay(day)}
-                  className={`aspect-square min-h-10 rounded-xl text-sm transition sm:min-h-0 ${
-                    active
-                      ? "bg-black text-white"
-                      : disabled
-                        ? "cursor-not-allowed text-black/25"
-                        : "border border-black/10 hover:border-black/40"
-                  }`}
+                  className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
+                  onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
                 >
-                  {format(day, "d")}
+                  Prev
                 </button>
-              );
-            })}
+                <p className="min-w-[9rem] text-center text-sm font-semibold">{format(month, "MMMM yyyy")}</p>
+                <button
+                  type="button"
+                  className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
+                  onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
+                >
+                  Next
+                </button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 text-center text-[0.65rem] uppercase tracking-[0.08em] text-[var(--ink-soft)] sm:gap-2 sm:text-xs sm:tracking-[0.12em]">
+                {[
+                  ["S", "Sun"],
+                  ["M", "Mon"],
+                  ["T", "Tue"],
+                  ["W", "Wed"],
+                  ["T", "Thu"],
+                  ["F", "Fri"],
+                  ["S", "Sat"],
+                ].map(([short, full]) => (
+                  <span key={full}>
+                    <span className="sm:hidden">{short}</span>
+                    <span className="hidden sm:inline">{full}</span>
+                  </span>
+                ))}
+              </div>
+              <div className="mt-2 grid grid-cols-7 gap-1 sm:gap-2">
+                {Array.from({ length: daysInMonth[0].getDay() }).map((_, i) => (
+                  <span key={`pad-${i}`} />
+                ))}
+                {daysInMonth.map((day) => {
+                  const key = format(day, "yyyy-MM-dd");
+                  const active = selectedDay === key;
+                  const past = day < new Date(new Date().toDateString());
+                  const open = availableDates.includes(key);
+                  const disabled = past || (!open && !loadingDates);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => selectDay(day)}
+                      className={`aspect-square min-h-10 rounded-xl text-sm transition sm:min-h-0 ${
+                        active
+                          ? "bg-black text-white"
+                          : disabled
+                            ? "cursor-not-allowed text-black/25"
+                            : "border border-black/10 hover:border-black/40"
+                      }`}
+                    >
+                      {format(day, "d")}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-4 text-xs text-[var(--ink-soft)]">
+                {loadingDates || seekingNextMonth
+                  ? seekingNextMonth
+                    ? "No open days this month — checking the next available month…"
+                    : "Checking open days…"
+                  : availableDates.some((key) => key >= format(new Date(), "yyyy-MM-dd"))
+                    ? "Only dates with open times are selectable."
+                    : "No open dates found in the next several months. Try different services or check back later."}{" "}
+                Times in {timezone.replace(/_/g, " ")}.
+              </p>
+            </div>
+
+            <div>
+              <p className="mb-3 text-xs uppercase tracking-[0.14em] text-[var(--ink-soft)]">Time</p>
+              {!selectedDay ? (
+                <p className="rounded-2xl border border-dashed border-black/15 px-4 py-8 text-sm text-[var(--ink-soft)]">
+                  Select a date to see available times.
+                </p>
+              ) : (
+                <>
+                  <p className="mb-4 text-sm text-[var(--ink-soft)]">
+                    {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")}
+                    {totals.durationMinutes ? ` · ${totals.durationMinutes} min` : ""}
+                  </p>
+                  {loadingSlots ? (
+                    <p className="text-sm text-[var(--ink-soft)]">Loading times…</p>
+                  ) : slots.length === 0 ? (
+                    <p className="text-sm text-[var(--ink-soft)]">No open times this day. Pick another date.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {slots.map((slot) => {
+                        const label = new Intl.DateTimeFormat("en-CA", {
+                          timeZone: timezone,
+                          hour: "numeric",
+                          minute: "2-digit",
+                        }).format(new Date(slot.start));
+                        const active =
+                          slotStart === slot.start && (slotStaffId ?? null) === (slot.staffId ?? null);
+                        return (
+                          <button
+                            key={`${slot.start}-${slot.staffId || "any"}`}
+                            type="button"
+                            onClick={() => selectSlot(slot)}
+                            className={`rounded-xl px-3 py-3 text-sm transition ${
+                              active ? "bg-black text-white" : "border border-black/15 hover:border-black/40"
+                            }`}
+                          >
+                            {label}
+                            {slot.staffName ? (
+                              <span
+                                className={`mt-1 block text-xs ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}
+                              >
+                                {slot.staffName}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-          <p className="mt-4 text-xs text-[var(--ink-soft)]">
-            {loadingDates || seekingNextMonth
-              ? seekingNextMonth
-                ? "No open days this month — checking the next available month…"
-                : "Checking open days…"
-              : availableDates.some((key) => key >= format(new Date(), "yyyy-MM-dd"))
-                ? "Only dates with open times are selectable."
-                : "No open dates found in the next several months. Try different services or check back later."}{" "}
-            Times in {timezone.replace(/_/g, " ")}.
-          </p>
+
           <NavFooter
             continueLabel="Continue"
-            continueDisabled={!selectedDay}
+            continueDisabled={!selectedDay || !slotStart}
             onContinue={() => {
               if (!selectedDay) {
                 setError("Pick a date to continue.");
                 return;
               }
-              goForward();
-            }}
-          />
-        </div>
-      )}
-
-      {stepName === "Time" && selectedDay && (
-        <div>
-          {staffOptions.length > 0 ? (
-            <div className="mb-5">
-              <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--ink-soft)]">Provider</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPreferredStaffId(null)}
-                  className={`rounded-full border px-4 py-2 text-sm transition ${
-                    !preferredStaffId ? "border-black bg-black text-white" : "border-black/15 hover:border-black/40"
-                  }`}
-                >
-                  Any available
-                </button>
-                {staffOptions.map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setPreferredStaffId(s.id)}
-                    className={`rounded-full border px-4 py-2 text-sm transition ${
-                      preferredStaffId === s.id
-                        ? "border-black bg-black text-white"
-                        : "border-black/15 hover:border-black/40"
-                    }`}
-                  >
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <p className="mb-4 text-sm text-[var(--ink-soft)]">
-            {format(parseISO(`${selectedDay}T12:00:00`), "EEEE, MMMM d")} · {totals.titles} · {totals.durationMinutes}{" "}
-            min
-          </p>
-          {loadingSlots ? (
-            <p className="text-sm text-[var(--ink-soft)]">Loading times…</p>
-          ) : slots.length === 0 ? (
-            <p className="text-sm text-[var(--ink-soft)]">No open times this day. Pick another date.</p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-              {slots.map((slot) => {
-                const label = new Intl.DateTimeFormat("en-CA", {
-                  timeZone: timezone,
-                  hour: "numeric",
-                  minute: "2-digit",
-                }).format(new Date(slot.start));
-                const active = slotStart === slot.start && (slotStaffId ?? null) === (slot.staffId ?? null);
-                return (
-                  <button
-                    key={`${slot.start}-${slot.staffId || "any"}`}
-                    type="button"
-                    onClick={() => selectSlot(slot)}
-                    className={`rounded-xl px-3 py-3 text-sm transition ${
-                      active ? "bg-black text-white" : "border border-black/15 hover:border-black/40"
-                    }`}
-                  >
-                    {label}
-                    {slot.staffName ? (
-                      <span className={`mt-1 block text-xs ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}>
-                        {slot.staffName}
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          <NavFooter
-            continueLabel="Continue"
-            continueDisabled={!slotStart}
-            onContinue={() => {
               if (!slotStart) {
                 setError("Pick a time to continue.");
                 return;
@@ -1514,7 +1498,7 @@ export function BookingWizard({
             <section className="rounded-2xl border border-black/10 p-5">
               <div className="flex items-center justify-between gap-3">
                 <h4 className="text-sm font-semibold uppercase tracking-[0.14em]">Date &amp; time</h4>
-                <button type="button" className="text-sm underline" onClick={() => goToStepName("Date")}>
+                <button type="button" className="text-sm underline" onClick={() => goToStepName("Date & time")}>
                   Edit
                 </button>
               </div>
