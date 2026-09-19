@@ -20,7 +20,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } f
 import { useRouter, useSearchParams } from "next/navigation";
 import { BlockedTimesPanel, type BlockedTimeItem } from "@/components/admin/calendar/BlockedTimesPanel";
 import { DayOverridesPanel } from "@/components/admin/calendar/DayOverridesPanel";
-import { dayKeyFromWeekday, type WeeklyHours } from "@/lib/booking/money";
+import { dayKeyFromWeekday, type WeeklyHours, formatCad, estimateBalanceDueCents } from "@/lib/booking/money";
 import {
   closedRangesForDay,
   effectiveWeeklyHours,
@@ -52,6 +52,11 @@ type Appointment = {
   clientPhone: string | null;
   notes: string;
   paymentMode: string;
+  priceCents?: number;
+  depositCents?: number | null;
+  taxCents?: number;
+  discountCents?: number;
+  amountChargedCents: number;
   amountLabel: string;
   priceLabel: string;
   balanceDueCents?: number;
@@ -121,6 +126,21 @@ function formatTime(iso: string, timezone: string) {
   }).format(new Date(iso));
 }
 
+function moneyInputFromCents(cents: number | null | undefined) {
+  if (cents == null || Number.isNaN(cents)) return "";
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
+}
+
+/** Parse a dollars string from an admin input into cents; empty → 0. Invalid → null. */
+function parseMoneyInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return 0;
+  const dollars = Number(trimmed);
+  if (Number.isNaN(dollars) || dollars < 0) return null;
+  return Math.round(dollars * 100);
+}
+
 export function AdminCalendar({
   initialServices,
   timezone = "America/Toronto",
@@ -138,6 +158,7 @@ export function AdminCalendar({
   const [blocks, setBlocks] = useState<BlockedTimeItem[]>([]);
   const [staff, setStaff] = useState<StaffOption[]>([]);
   const [studioWeeklyHours, setStudioWeeklyHours] = useState<WeeklyHours>({});
+  const [hstRateBps, setHstRateBps] = useState(1300);
   const [canWrite, setCanWrite] = useState(false);
   const [canManageAll, setCanManageAll] = useState(false);
   const [staffFilter, setStaffFilter] = useState("");
@@ -158,6 +179,11 @@ export function AdminCalendar({
     clientPhone: "",
     notes: "",
     startsAt: "",
+    paymentMode: "deposit",
+    priceDollars: "",
+    depositDollars: "",
+    amountPaidDollars: "",
+    discountDollars: "",
   });
   const [recurrence, setRecurrence] = useState({
     frequency: "none" as "none" | "weekly" | "biweekly",
@@ -227,6 +253,7 @@ export function AdminCalendar({
         })),
       );
       if (data.studioWeeklyHours) setStudioWeeklyHours(data.studioWeeklyHours);
+      if (typeof data.hstRateBps === "number") setHstRateBps(data.hstRateBps);
       setCanWrite(Boolean(data.canWrite));
       setCanManageAll(Boolean(data.canManageAll));
     });
@@ -280,6 +307,11 @@ export function AdminCalendar({
         clientPhone: c.phone || "",
         notes: "",
         startsAt: starts,
+        paymentMode: "deposit",
+        priceDollars: "",
+        depositDollars: "",
+        amountPaidDollars: "",
+        discountDollars: "",
       });
       setClientQuery(`${c.name} · ${c.email}`);
       setClientSuggestions([]);
@@ -389,6 +421,11 @@ export function AdminCalendar({
       clientPhone: "",
       notes: "",
       startsAt: starts,
+      paymentMode: "deposit",
+      priceDollars: "",
+      depositDollars: "",
+      amountPaidDollars: "",
+      discountDollars: "",
     });
     setClientQuery("");
     setClientSuggestions([]);
@@ -408,6 +445,11 @@ export function AdminCalendar({
       clientPhone: appt.clientPhone || "",
       notes: appt.notes || "",
       startsAt: toLocalInputValue(new Date(appt.startsAt)),
+      paymentMode: appt.paymentMode || "deposit",
+      priceDollars: moneyInputFromCents(appt.priceCents),
+      depositDollars: moneyInputFromCents(appt.depositCents),
+      amountPaidDollars: moneyInputFromCents(appt.amountChargedCents),
+      discountDollars: moneyInputFromCents(appt.discountCents),
     });
     setClientQuery(appt.clientId ? `${appt.clientName} · ${appt.clientEmail}` : "");
     setDrawer("edit");
@@ -545,6 +587,18 @@ export function AdminCalendar({
       setError("Select at least one service");
       return;
     }
+    const priceCents = parseMoneyInput(form.priceDollars);
+    const amountChargedCents = parseMoneyInput(form.amountPaidDollars);
+    const discountCents = parseMoneyInput(form.discountDollars);
+    const depositCents = form.depositDollars.trim() === "" ? null : parseMoneyInput(form.depositDollars);
+    if (priceCents == null || amountChargedCents == null || discountCents == null) {
+      setError("Enter valid payment amounts (dollars)");
+      return;
+    }
+    if (form.depositDollars.trim() !== "" && depositCents == null) {
+      setError("Enter a valid deposit amount (dollars)");
+      return;
+    }
     await patchAppointment(
       {
         notes: form.notes,
@@ -555,10 +609,46 @@ export function AdminCalendar({
         clientEmail: form.clientEmail,
         clientPhone: form.clientPhone || null,
         serviceIds: form.serviceIds,
+        paymentMode: form.paymentMode,
+        priceCents,
+        depositCents,
+        amountChargedCents,
+        discountCents,
       },
       { skipAnnounce: true, promptNotify: true },
     );
   }
+
+  const editPaymentPreview = useMemo(() => {
+    if (drawer !== "edit" || !selected) return null;
+    const priceCents = parseMoneyInput(form.priceDollars) ?? 0;
+    const amountChargedCents = parseMoneyInput(form.amountPaidDollars) ?? 0;
+    const discountCents = parseMoneyInput(form.discountDollars) ?? 0;
+    const balanceDueCents = estimateBalanceDueCents(
+      {
+        status: selected.status,
+        paymentMode: form.paymentMode,
+        priceCents,
+        amountChargedCents,
+        discountCents,
+      },
+      hstRateBps,
+    );
+    return {
+      priceLabel: formatCad(priceCents),
+      paidLabel: formatCad(amountChargedCents),
+      balanceDueCents,
+      balanceDueLabel: balanceDueCents > 0 ? formatCad(balanceDueCents) : null,
+    };
+  }, [
+    drawer,
+    selected,
+    form.paymentMode,
+    form.priceDollars,
+    form.amountPaidDollars,
+    form.discountDollars,
+    hstRateBps,
+  ]);
 
   function appointmentsForDay(day: Date) {
     return appointments.filter((a) => isSameDay(new Date(a.startsAt), day));
@@ -931,9 +1021,13 @@ export function AdminCalendar({
                     {selected.status.replace("_", " ")}
                   </p>
                   <p className="text-xs text-white/50">
-                    Charged {selected.amountLabel} · service {selected.priceLabel}
-                    {selected.balanceDueLabel ? (
-                      <span className="text-[#c6a75e]"> · balance due {selected.balanceDueLabel}</span>
+                    Paid {editPaymentPreview?.paidLabel || selected.amountLabel} · service{" "}
+                    {editPaymentPreview?.priceLabel || selected.priceLabel}
+                    {(editPaymentPreview?.balanceDueLabel || selected.balanceDueLabel) ? (
+                      <span className="text-[#c6a75e]">
+                        {" "}
+                        · balance due {editPaymentPreview?.balanceDueLabel || selected.balanceDueLabel}
+                      </span>
                     ) : null}
                   </p>
                   {selected.seriesId ? (
@@ -1097,6 +1191,83 @@ export function AdminCalendar({
                       onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                     />
                   </label>
+
+                  {drawer === "edit" ? (
+                    <fieldset className="grid gap-3 rounded-lg border border-white/10 p-3">
+                      <legend className="px-1 text-sm text-white/70">Payment</legend>
+                      <label className="grid gap-1 text-sm text-white/70">
+                        Payment mode
+                        <select
+                          className="admin-input"
+                          value={form.paymentMode}
+                          onChange={(e) => setForm((f) => ({ ...f, paymentMode: e.target.value }))}
+                        >
+                          <option value="deposit">Deposit</option>
+                          <option value="full">Full</option>
+                          <option value="none">None (pay at studio)</option>
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-sm text-white/70">
+                        Service total (CAD)
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="admin-input"
+                          value={form.priceDollars}
+                          onChange={(e) => setForm((f) => ({ ...f, priceDollars: e.target.value }))}
+                          required
+                        />
+                      </label>
+                      {form.paymentMode === "deposit" ? (
+                        <label className="grid gap-1 text-sm text-white/70">
+                          Deposit amount (CAD)
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="admin-input"
+                            value={form.depositDollars}
+                            onChange={(e) => setForm((f) => ({ ...f, depositDollars: e.target.value }))}
+                          />
+                        </label>
+                      ) : null}
+                      <label className="grid gap-1 text-sm text-white/70">
+                        Amount paid (CAD)
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="admin-input"
+                          value={form.amountPaidDollars}
+                          onChange={(e) => setForm((f) => ({ ...f, amountPaidDollars: e.target.value }))}
+                          required
+                        />
+                      </label>
+                      <label className="grid gap-1 text-sm text-white/70">
+                        Discount (CAD)
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          className="admin-input"
+                          value={form.discountDollars}
+                          onChange={(e) => setForm((f) => ({ ...f, discountDollars: e.target.value }))}
+                        />
+                      </label>
+                      <p className="text-xs text-white/45">
+                        Remaining balance:{" "}
+                        <span className={editPaymentPreview?.balanceDueCents ? "text-[#c6a75e]" : "text-white/70"}>
+                          {editPaymentPreview?.balanceDueLabel || formatCad(0)}
+                        </span>
+                        {form.paymentMode !== "deposit" ? (
+                          <span className="block mt-1 text-white/35">
+                            Balance is tracked for deposit bookings only.
+                          </span>
+                        ) : null}
+                      </p>
+                    </fieldset>
+                  ) : null}
 
                   {drawer === "create" ? (
                     <details className="rounded-lg border border-white/10 p-3">

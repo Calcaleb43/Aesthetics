@@ -7,7 +7,7 @@ import { canManageAllAppointments, canWriteAppointments } from "@/lib/auth/roles
 import { upsertClient } from "@/lib/booking/clients";
 import { PENDING_HOLD_MINUTES, activeHoldStatuses } from "@/lib/booking/availability";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
-import { asWeeklyHours, estimateBalanceDueCents, formatCad } from "@/lib/booking/money";
+import { asWeeklyHours, estimateBalanceDueCents, formatCad, taxOn } from "@/lib/booking/money";
 import { buildOccurrenceStarts } from "@/lib/booking/recurrence";
 import { staffForAllServices, normalizeBookingItems, resolveBookingItems } from "@/lib/booking/service";
 import { normalizeStaffWeeklyHours } from "@/lib/booking/weekly-hours";
@@ -128,6 +128,7 @@ export async function GET(req: Request) {
     canWrite: canWriteAppointments(gate.session.role),
     canManageAll: canManageAllAppointments(gate.session.role),
     timezone: settings?.timezone || "America/Toronto",
+    hstRateBps: settings?.hstRateBps ?? 1300,
     studioWeeklyHours: asWeeklyHours(settings?.weeklyHours),
     staff: staff.map((s) => ({
       id: s.id,
@@ -153,6 +154,10 @@ export async function GET(req: Request) {
         clientPhone: row.clientPhone,
         notes: row.notes,
         paymentMode: row.paymentMode,
+        priceCents: row.priceCents,
+        depositCents: row.depositCents,
+        taxCents: row.taxCents,
+        discountCents: row.discountCents,
         amountChargedCents: row.amountChargedCents,
         amountLabel: formatCad(row.amountChargedCents),
         priceLabel: formatCad(row.priceCents),
@@ -191,6 +196,11 @@ const patchSchema = z.object({
   clientId: z.string().uuid().nullable().optional(),
   /** When true, skip automatic cancel/confirm/reschedule emails (UI will prompt instead). */
   skipAnnounce: z.boolean().optional(),
+  paymentMode: z.enum(["deposit", "full", "none"]).optional(),
+  priceCents: z.number().int().min(0).max(10_000_000).optional(),
+  depositCents: z.number().int().min(0).max(10_000_000).nullable().optional(),
+  amountChargedCents: z.number().int().min(0).max(10_000_000).optional(),
+  discountCents: z.number().int().min(0).max(10_000_000).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -319,6 +329,41 @@ export async function PATCH(req: Request) {
     data.clientId = parsed.data.clientId;
   }
 
+  const paymentTouched =
+    parsed.data.paymentMode !== undefined ||
+    parsed.data.priceCents !== undefined ||
+    parsed.data.depositCents !== undefined ||
+    parsed.data.amountChargedCents !== undefined ||
+    parsed.data.discountCents !== undefined;
+
+  if (paymentTouched) {
+    if (parsed.data.paymentMode !== undefined) data.paymentMode = parsed.data.paymentMode;
+    if (parsed.data.priceCents !== undefined) data.priceCents = parsed.data.priceCents;
+    if (parsed.data.depositCents !== undefined) data.depositCents = parsed.data.depositCents;
+    if (parsed.data.amountChargedCents !== undefined) {
+      data.amountChargedCents = parsed.data.amountChargedCents;
+    }
+    if (parsed.data.discountCents !== undefined) data.discountCents = parsed.data.discountCents;
+
+    const nextPrice =
+      parsed.data.priceCents !== undefined
+        ? parsed.data.priceCents
+        : typeof data.priceCents === "number"
+          ? (data.priceCents as number)
+          : existing.priceCents;
+    const nextDiscount =
+      parsed.data.discountCents !== undefined ? parsed.data.discountCents : existing.discountCents;
+    const nextMode =
+      parsed.data.paymentMode !== undefined ? parsed.data.paymentMode : existing.paymentMode;
+    const settingsForTax = await gate.db.siteSettings.findUnique({
+      where: { id: 1 },
+      select: { hstRateBps: true },
+    });
+    const hstRateBps = settingsForTax?.hstRateBps ?? 1300;
+    const net = Math.max(0, nextPrice - nextDiscount);
+    data.taxCents = nextMode === "none" ? 0 : taxOn(net, hstRateBps);
+  }
+
   const previousStartsAt = existing.startsAt;
   const timeChanged =
     Boolean(parsed.data.startsAt) &&
@@ -388,6 +433,28 @@ export async function PATCH(req: Request) {
   }
   if (parsed.data.notes !== undefined && (parsed.data.notes || "") !== (existing.notes || "")) {
     changeLines.push("Notes were updated");
+  }
+  if (parsed.data.paymentMode !== undefined && parsed.data.paymentMode !== existing.paymentMode) {
+    changeLines.push(`Payment mode: ${existing.paymentMode} → ${parsed.data.paymentMode}`);
+  }
+  if (parsed.data.priceCents !== undefined && parsed.data.priceCents !== existing.priceCents) {
+    changeLines.push(`Service total: ${formatCad(existing.priceCents)} → ${formatCad(parsed.data.priceCents)}`);
+  }
+  if (
+    parsed.data.amountChargedCents !== undefined &&
+    parsed.data.amountChargedCents !== existing.amountChargedCents
+  ) {
+    changeLines.push(
+      `Amount paid: ${formatCad(existing.amountChargedCents)} → ${formatCad(parsed.data.amountChargedCents)}`,
+    );
+  }
+  if (
+    parsed.data.depositCents !== undefined &&
+    (parsed.data.depositCents ?? null) !== (existing.depositCents ?? null)
+  ) {
+    changeLines.push(
+      `Deposit: ${formatCad(existing.depositCents || 0)} → ${formatCad(parsed.data.depositCents || 0)}`,
+    );
   }
 
   const skipAnnounce = Boolean(parsed.data.skipAnnounce);
