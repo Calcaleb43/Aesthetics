@@ -67,7 +67,7 @@ export function SiteHeader({ siteName, bookingUrl, bookingExternal = true, insta
           className="min-w-0 justify-self-start transition hover:opacity-80"
           aria-label={siteName}
         >
-          <SiteLogo variant="dark" priority className="h-10 sm:h-12" />
+          <SiteLogo priority className="h-10 max-w-[12.5rem] sm:h-12 sm:max-w-[15rem]" />
         </Link>
 
         <nav

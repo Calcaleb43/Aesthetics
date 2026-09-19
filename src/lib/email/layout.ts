@@ -1,4 +1,6 @@
 import { siteUrl } from "@/lib/booking/stripe";
+import { BRAND_LOGO } from "@/lib/brand";
+import { absoluteUrl } from "@/lib/seo";
 
 export type StudioEmailContext = {
   siteName: string;
@@ -63,6 +65,10 @@ export function renderEmailLayout(input: {
   const details = input.detailRows?.length
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 8px;border-collapse:collapse">${emailDetailRows(input.detailRows)}</table>`
     : "";
+  // Email clients: ~220px wide; keep brand aspect (1613×563).
+  const logoDisplayWidth = 220;
+  const logoDisplayHeight = Math.round((logoDisplayWidth * BRAND_LOGO.height) / BRAND_LOGO.width);
+  const logoSrc = absoluteUrl(BRAND_LOGO.path);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -81,8 +87,14 @@ export function renderEmailLayout(input: {
             <td style="height:4px;background:linear-gradient(90deg,#c6a75e,#e8d5a3,#c6a75e);"></td>
           </tr>
           <tr>
-            <td style="padding:32px 28px 8px;font-family:Georgia,'Times New Roman',serif;">
-              <p style="margin:0 0 18px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#9a7a32;">${escapeHtml(studio.siteName)}</p>
+            <td align="center" style="padding:20px 28px;background:#0f0f0f;">
+              <a href="${escapeHtml(base)}" style="text-decoration:none;">
+                <img src="${escapeHtml(logoSrc)}" alt="${escapeHtml(studio.siteName)}" width="${logoDisplayWidth}" height="${logoDisplayHeight}" style="display:block;width:${logoDisplayWidth}px;max-width:80%;height:auto;border:0;outline:none;" />
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 8px;font-family:Georgia,'Times New Roman',serif;">
               ${input.eyebrow ? `<p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:#9a7a32;">${escapeHtml(input.eyebrow)}</p>` : ""}
               <h1 style="margin:0 0 16px;font-size:28px;line-height:1.25;font-weight:normal;color:#111111;">${escapeHtml(input.title)}</h1>
               <div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.7;color:#333333;">${input.introHtml}</div>

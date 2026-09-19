@@ -1,27 +1,25 @@
 import Image from "next/image";
-
-const LOGOS = {
-  gold: "/brand/logo.png",
-  dark: "/brand/logo-dark.png",
-} as const;
+import { BRAND_LOGO } from "@/lib/brand";
 
 export function SiteLogo({
-  variant = "gold",
   className = "",
   priority = false,
 }: {
+  /** @deprecated Both variants use the same brand mark. */
   variant?: "gold" | "dark";
   className?: string;
   priority?: boolean;
 }) {
   return (
     <Image
-      src={LOGOS[variant]}
+      src={BRAND_LOGO.path}
       alt="Aniekanvas Aesthetics"
-      width={440}
-      height={202}
+      width={BRAND_LOGO.width}
+      height={BRAND_LOGO.height}
       priority={priority}
-      className={`h-11 w-auto max-w-[min(100%,12rem)] object-contain object-left ${className}`}
+      // Media proxy — skip optimizer so /api/media streams reliably.
+      unoptimized
+      className={`h-10 w-auto max-w-[min(100%,13.5rem)] object-contain object-left sm:h-12 sm:max-w-[15rem] ${className}`}
     />
   );
 }
