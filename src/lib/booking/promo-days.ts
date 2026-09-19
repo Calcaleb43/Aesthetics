@@ -98,7 +98,7 @@ export function promoHasDiscount(promo: PromoDayRow) {
 
 export function promoWindowsForStaffDate(
   promos: PromoDayRow[],
-  dateKey: string;
+  dateKey: string,
   staffId: string,
   serviceIds: string[],
 ): WeeklyWindow[] {
