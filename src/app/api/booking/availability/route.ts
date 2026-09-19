@@ -11,6 +11,7 @@ import {
   windowsForDate,
   type DayOverrideRow,
 } from "@/lib/booking/day-overrides";
+import { mergePromoDayWindows, attachPromoToSlots, type PromoDayRow } from "@/lib/booking/promo-days";
 import {
   findBookableAddons,
   normalizeBookingItems,
@@ -18,7 +19,7 @@ import {
   staffForAllServices,
   type BookingItemInput,
 } from "@/lib/booking/service";
-import { dayKeyFromWeekday, zonedParts } from "@/lib/booking/money";
+import { dayKeyFromWeekday, zonedParts, type WeeklyWindow } from "@/lib/booking/money";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -65,8 +66,12 @@ function buildDayWindows(input: {
   weeklyHours: unknown;
   overrides: DayOverrideRow[];
   staffId: string | null;
-}): Record<string, { start: string; end: string }[] | null> {
-  const map: Record<string, { start: string; end: string }[] | null> = {};
+}): {
+  dayWindows: Record<string, WeeklyWindow[] | null>;
+  dayKeyByDate: Record<string, string>;
+} {
+  const dayWindows: Record<string, WeeklyWindow[] | null> = {};
+  const dayKeyByDate: Record<string, string> = {};
   let cursor = new Date(input.from);
   cursor.setUTCHours(12, 0, 0, 0);
   const end = new Date(input.to);
@@ -75,6 +80,7 @@ function buildDayWindows(input: {
     const parts = zonedParts(cursor, input.timeZone);
     const dateKey = dateKeyFromParts(parts);
     const dayKey = dayKeyFromWeekday(parts.weekday);
+    dayKeyByDate[dateKey] = dayKey;
     const { staffOverride, studioOverride } = pickOverridesForStaff(
       input.overrides,
       dateKey,
@@ -88,11 +94,11 @@ function buildDayWindows(input: {
       staffOverride,
     });
     if (staffOverride || studioOverride) {
-      map[dateKey] = windows;
+      dayWindows[dateKey] = windows;
     }
     cursor = addDays(cursor, 1);
   }
-  return map;
+  return { dayWindows, dayKeyByDate };
 }
 
 export async function GET(req: Request) {
@@ -187,6 +193,72 @@ export async function GET(req: Request) {
       windows: r.windows,
     }));
 
+    const promoStaffFilter =
+      preferredStaffId != null
+        ? preferredStaffId
+        : assigned.length
+          ? { in: assigned.map((a) => a.id) }
+          : undefined;
+
+    const promoRows = promoStaffFilter
+      ? await db.promoDay.findMany({
+          where: {
+            active: true,
+            closed: false,
+            date: {
+              gte: dateKeyFromParts(zonedParts(from, settings.timezone)),
+              lte: dateKeyFromParts(zonedParts(addDays(to, -1), settings.timezone)),
+            },
+            staffId: promoStaffFilter,
+            services: { some: { serviceId: { in: serviceIds } } },
+          },
+          include: {
+            services: { select: { serviceId: true } },
+            coupon: {
+              select: {
+                id: true,
+                code: true,
+                name: true,
+                type: true,
+                amount: true,
+                active: true,
+                startsAt: true,
+                endsAt: true,
+                maxRedemptions: true,
+                redeemedCount: true,
+              },
+            },
+          },
+        })
+      : [];
+    const now = new Date();
+    const promoDays: PromoDayRow[] = promoRows.map((r) => {
+      const coupon =
+        r.coupon &&
+        r.coupon.active &&
+        !(r.coupon.startsAt && r.coupon.startsAt > now) &&
+        !(r.coupon.endsAt && r.coupon.endsAt < now) &&
+        !(r.coupon.maxRedemptions != null && r.coupon.redeemedCount >= r.coupon.maxRedemptions)
+          ? {
+              id: r.coupon.id,
+              code: r.coupon.code,
+              name: r.coupon.name,
+              type: r.coupon.type,
+              amount: r.coupon.amount,
+            }
+          : null;
+      return {
+        id: r.id,
+        date: r.date,
+        staffId: r.staffId,
+        closed: r.closed,
+        active: r.active,
+        windows: r.windows,
+        serviceIds: r.services.map((s) => s.serviceId),
+        coupon,
+      };
+    });
+
     const holds = activeHoldStatuses();
     const studioBlocks = await db.blockedTime.findMany({
       where: {
@@ -235,7 +307,7 @@ export async function GET(req: Request) {
         weeklyHours: settings.weeklyHours,
         overrides,
         staffId: null,
-      });
+      }).dayWindows;
       for (const s of computeAvailableSlots({
         ...baseInput,
         weeklyHours: settings.weeklyHours,
@@ -273,13 +345,21 @@ export async function GET(req: Request) {
           ...staffBlocks.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
         ];
         const weekly = effectiveWeeklyHours(admin.weeklyHours, settings.weeklyHours);
-        const dayWindows = buildDayWindows({
+        const built = buildDayWindows({
           from,
           to,
           timeZone: settings.timezone,
           weeklyHours: weekly,
           overrides,
           staffId: admin.id,
+        });
+        const dayWindows = mergePromoDayWindows({
+          dayWindows: built.dayWindows,
+          weeklyHours: weekly,
+          dayKeyByDate: built.dayKeyByDate,
+          promos: promoDays,
+          staffId: admin.id,
+          serviceIds,
         });
         for (const s of computeAvailableSlots({
           ...baseInput,
@@ -314,6 +394,8 @@ export async function GET(req: Request) {
       ),
     ].sort();
 
+    const slotsWithPromo = attachPromoToSlots(slots, promoDays, serviceIds, settings.timezone);
+
     if (datesOnly) {
       return NextResponse.json({
         serviceIds,
@@ -337,7 +419,7 @@ export async function GET(req: Request) {
       durationMinutes,
       availableDates,
       staff: staffOptions,
-      slots,
+      slots: slotsWithPromo,
     });
   } catch (err) {
     console.error("Booking availability error", err);

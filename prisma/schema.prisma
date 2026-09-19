@@ -23,6 +23,7 @@ model Admin {
   notifications Notification[]
   blockedTimes BlockedTime[]
   dayOverrides DayOverride[]
+  promoDays    PromoDay[]
   accountingAdjustments AccountingAdjustment[]
   accountingExpenses    AccountingExpense[]
 
@@ -138,6 +139,7 @@ model Service {
   staff           StaffService[]
   variants        ServiceVariant[]
   packageLinks    PackageService[]
+  promoDayLinks   PromoDayService[]
 
   @@index([categoryId, sortOrder])
   @@map("services")
@@ -489,9 +491,46 @@ model Coupon {
   minSubtotalCents Int?      @map("min_subtotal_cents")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  promoDays        PromoDay[]
 
   @@index([active])
   @@map("coupons")
+}
+
+/// Extra open hours for selected services + staff on a calendar day, optionally tied to a coupon.
+model PromoDay {
+  id        String            @id @default(uuid()) @db.Uuid
+  /// Calendar date in studio timezone as YYYY-MM-DD
+  date      String            @db.VarChar(10)
+  couponId  String?           @map("coupon_id") @db.Uuid
+  coupon    Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  staffId   String            @map("staff_id") @db.Uuid
+  staff     Admin             @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  closed    Boolean           @default(false)
+  windows   Json              @default("[]")
+  note      String            @default("") @db.VarChar(200)
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  services  PromoDayService[]
+
+  @@index([date])
+  @@index([staffId])
+  @@index([couponId])
+  @@index([active, date])
+  @@map("promo_days")
+}
+
+model PromoDayService {
+  id         String   @id @default(uuid()) @db.Uuid
+  promoDayId String   @map("promo_day_id") @db.Uuid
+  promoDay   PromoDay @relation(fields: [promoDayId], references: [id], onDelete: Cascade)
+  serviceId  String   @map("service_id") @db.Uuid
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([promoDayId, serviceId])
+  @@index([serviceId])
+  @@map("promo_day_services")
 }
 
 /// Sellable prepaid session package.

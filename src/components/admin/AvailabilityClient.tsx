@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BlockedTimesPanel } from "@/components/admin/calendar/BlockedTimesPanel";
 import { DayOverridesPanel } from "@/components/admin/calendar/DayOverridesPanel";
+import { PromoDaysPanel } from "@/components/admin/calendar/PromoDaysPanel";
 import { WeeklyHoursEditor } from "@/components/admin/WeeklyHoursEditor";
 import type { WeeklyHours } from "@/lib/booking/money";
 
@@ -16,12 +17,17 @@ type StaffRow = {
   weeklyHours: WeeklyHours | null;
 };
 
-type TabId = "studio" | "staff" | "days" | "blocks" | "rules";
+type TabId = "studio" | "staff" | "days" | "promos" | "blocks" | "rules";
 
 const TABS: { id: TabId; label: string; summary: string }[] = [
   { id: "studio", label: "Studio hours", summary: "Default open days and times for public booking." },
   { id: "staff", label: "Staff hours", summary: "Per-provider schedules (or inherit studio hours)." },
   { id: "days", label: "Day edits", summary: "Close or customize a single calendar day." },
+    {
+      id: "promos",
+      label: "Promo days",
+      summary: "Extra open hours + automatic coupon discount for selected services and staff.",
+    },
   { id: "blocks", label: "Blocked times", summary: "Vacations, breaks, and unavailable ranges." },
   { id: "rules", label: "Booking rules", summary: "Slot size, buffers, lead time, and booking on/off." },
 ];
@@ -272,6 +278,10 @@ export function AvailabilityClient({
 
       {tab === "days" ? (
         <DayOverridesPanel canWrite={canWrite} canManageAll={canManageAll} staff={staff} />
+      ) : null}
+
+      {tab === "promos" ? (
+        <PromoDaysPanel canWrite={canWrite} canManageAll={canManageAll} staff={staff} />
       ) : null}
 
       {tab === "blocks" ? (

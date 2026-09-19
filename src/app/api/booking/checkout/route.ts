@@ -18,6 +18,7 @@ import {
 } from "@/lib/booking/service";
 import { applyDiscountToCharge, validateCoupon } from "@/lib/booking/coupons";
 import { createBookingCheckoutSession, normalizePaymentProvider, paymentProviderConfigured } from "@/lib/booking/payments";
+import { dateKeyInTimezone, findMatchingPromoDay } from "@/lib/booking/promo-days";
 import { siteUrl } from "@/lib/booking/stripe";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
@@ -247,10 +248,54 @@ export async function POST(req: Request) {
 
   let discountCents = 0;
   let couponCode: string | null = null;
-  if (parsed.data.promoCode?.trim()) {
-    // Coupon always validates against the full service total, not the deposit.
-    const validated = await validateCoupon(db, parsed.data.promoCode, rawCharge.priceCents);
+
+  // Promo day linked coupon auto-applies for matching date + staff + services
+  const bookingDateKey = dateKeyInTimezone(startsAt, settings.timezone);
+  let dayPromoCode: string | null = null;
+  if (staffId) {
+    const dayPromos = await db.promoDay.findMany({
+      where: {
+        active: true,
+        closed: false,
+        date: bookingDateKey,
+        staffId,
+        services: { some: { serviceId: { in: serviceIds } } },
+        couponId: { not: null },
+      },
+      include: {
+        services: { select: { serviceId: true } },
+        coupon: true,
+      },
+    });
+    const match = findMatchingPromoDay(
+      dayPromos.map((r) => ({
+        id: r.id,
+        date: r.date,
+        staffId: r.staffId,
+        closed: r.closed,
+        active: r.active,
+        windows: r.windows,
+        serviceIds: r.services.map((s) => s.serviceId),
+        coupon: r.coupon
+          ? {
+              id: r.coupon.id,
+              code: r.coupon.code,
+              name: r.coupon.name,
+              type: r.coupon.type,
+              amount: r.coupon.amount,
+            }
+          : null,
+      })),
+      { dateKey: bookingDateKey, staffId, serviceIds },
+    );
+    dayPromoCode = match?.coupon?.code || null;
+  }
+
+  const promoToApply = dayPromoCode || parsed.data.promoCode?.trim() || "";
+  if (promoToApply) {
+    const validated = await validateCoupon(db, promoToApply, rawCharge.priceCents);
     if (!validated.ok) {
+      // Manual code failed; if day promo also failed, error. If only manual failed but we had day promo, already used day.
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     discountCents = validated.discountCents;

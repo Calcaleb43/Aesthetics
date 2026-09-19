@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addDays, addMonths, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import { formatCad, multiChargeBreakdown, taxOn } from "@/lib/booking/money";
-import { applyDiscountToCharge } from "@/lib/booking/coupons";
+import { applyDiscountToCharge, couponLabel } from "@/lib/booking/coupons";
+import { discountCentsForSubtotal, formatPromoDiscountLabel } from "@/lib/booking/promo-days";
 
 type BookableService = {
   id: string;
@@ -53,7 +54,19 @@ type ResolvedLine = {
   unitPriceCents: number;
 };
 
-type Slot = { start: string; end: string; staffId?: string | null; staffName?: string | null };
+type Slot = {
+  start: string;
+  end: string;
+  staffId?: string | null;
+  staffName?: string | null;
+  promo?: {
+    code: string;
+    name: string;
+    type: string;
+    amount: number;
+    label: string;
+  } | null;
+};
 type StaffOption = { id: string; name: string };
 
 type StepName = "Services" | "Add-ons" | "Date & time" | "Details" | "Review" | "Pay";
@@ -104,6 +117,7 @@ export function BookingWizard({
     discountCents: number;
     discountLabel: string;
     label: string;
+    source?: "manual" | "promo_day";
   } | null>(null);
   const [promoPending, setPromoPending] = useState(false);
   const [clientPackageId, setClientPackageId] = useState<string | null>(null);
@@ -311,6 +325,31 @@ export function BookingWizard({
     setPromoApplied(null);
   }, [serviceLines, selectedAddons]);
 
+  useEffect(() => {
+    if (!slotStart || clientPackageId || !totals.priceCents) return;
+    const slot = slots.find(
+      (s) => s.start === slotStart && (s.staffId ?? null) === (slotStaffId ?? null),
+    );
+    if (!slot?.promo) return;
+    const discountCents = discountCentsForSubtotal(totals.priceCents, slot.promo);
+    setPromoCode(slot.promo.code);
+    setPromoApplied({
+      code: slot.promo.code,
+      discountCents,
+      discountLabel: formatCad(discountCents),
+      label: `Promo day · ${couponLabel(slot.promo)}`,
+      source: "promo_day",
+    });
+  }, [
+    slotStart,
+    slotStaffId,
+    slots,
+    totals.priceCents,
+    clientPackageId,
+    serviceLines,
+    selectedAddons,
+  ]);
+
   async function applyPromo() {
     setError("");
     if (!promoCode.trim()) {
@@ -339,6 +378,7 @@ export function BookingWizard({
         discountCents: data.discountCents,
         discountLabel: data.discountLabel,
         label: data.label,
+        source: "manual",
       });
       setPromoCode(data.code);
     } catch {
@@ -715,12 +755,30 @@ export function BookingWizard({
     setSlotStart("");
     setSlotStaffId(null);
     setError("");
+    if (promoApplied?.source === "promo_day") {
+      setPromoApplied(null);
+      setPromoCode("");
+    }
   }
 
   function selectSlot(slot: Slot) {
     setSlotStart(slot.start);
     setSlotStaffId(slot.staffId ?? null);
     setError("");
+    if (slot.promo && !clientPackageId) {
+      const discountCents = discountCentsForSubtotal(totals.priceCents, slot.promo);
+      setPromoCode(slot.promo.code);
+      setPromoApplied({
+        code: slot.promo.code,
+        discountCents,
+        discountLabel: formatCad(discountCents),
+        label: `Promo day · ${couponLabel(slot.promo)}`,
+        source: "promo_day",
+      });
+    } else if (promoApplied?.source === "promo_day") {
+      setPromoApplied(null);
+      setPromoCode("");
+    }
   }
 
   function submitCheckout() {
@@ -1194,6 +1252,12 @@ export function BookingWizard({
                         }).format(new Date(slot.start));
                         const active =
                           slotStart === slot.start && (slotStaffId ?? null) === (slot.staffId ?? null);
+                        const promoHint = slot.promo
+                          ? formatPromoDiscountLabel(
+                              slot.promo,
+                              discountCentsForSubtotal(totals.priceCents, slot.promo),
+                            )
+                          : null;
                         return (
                           <button
                             key={`${slot.start}-${slot.staffId || "any"}`}
@@ -1209,6 +1273,15 @@ export function BookingWizard({
                                 className={`mt-1 block text-xs ${active ? "text-white/70" : "text-[var(--ink-soft)]"}`}
                               >
                                 {slot.staffName}
+                              </span>
+                            ) : null}
+                            {promoHint ? (
+                              <span
+                                className={`mt-1 block text-[0.65rem] uppercase tracking-[0.1em] ${
+                                  active ? "text-[#e8d5a3]" : "text-[var(--gold)]"
+                                }`}
+                              >
+                                Promo {promoHint}
                               </span>
                             ) : null}
                           </button>
@@ -1417,7 +1490,8 @@ export function BookingWizard({
               </label>
               {promoApplied ? (
                 <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                  Applied: {promoApplied.label}
+                  {promoApplied.source === "promo_day" ? "Promo day applied: " : "Applied: "}
+                  {promoApplied.label}
                   {promoApplied.discountLabel ? ` (−${promoApplied.discountLabel})` : ""}
                 </p>
               ) : null}
