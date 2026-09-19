@@ -28,7 +28,7 @@ const bookingFields: EditorSection["fields"] = [
     label: "Booking payment platform",
     type: "select",
     options: ["stripe", "none"],
-    hint: "stripe = Stripe Checkout; none = confirm with no online charge",
+    hint: "stripe = Stripe Checkout (card + Afterpay when enabled in Dashboard); none = confirm with no online charge",
   },
   { name: "bookingUrl", label: "External booking URL (fallback)" },
   { name: "timezone", label: "Timezone", hint: "e.g. America/Toronto" },
@@ -104,7 +104,7 @@ const promoFields: EditorSection["fields"] = [
   {
     name: "promoBannerText",
     label: "Banner text",
-    hint: 'Default: "Klarna Available at Checkout"',
+    hint: 'Default: "Klarna Available at Checkout". Afterpay is offered on Stripe Checkout when enabled in Dashboard.',
   },
   {
     name: "promoBannerHref",
@@ -133,7 +133,8 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     id: "promo",
     title: "Promo banner",
     summary: "Site-wide announcement bar above the header.",
-    description: "Shown on every public page when enabled. Klarna must still be enabled in Stripe Dashboard.",
+    description:
+      "Shown on every public page when enabled. Afterpay/Klarna must still be enabled in the Stripe Dashboard to appear at checkout.",
     href: "/admin/settings/promo",
     fields: promoFields,
   },

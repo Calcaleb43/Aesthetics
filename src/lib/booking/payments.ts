@@ -1,8 +1,32 @@
+import type Stripe from "stripe";
 import { formatCad } from "@/lib/booking/money";
 import { getStripe, hasStripe, siteUrl } from "@/lib/booking/stripe";
 
 export const PAYMENT_PROVIDERS = ["stripe", "none"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
+
+/** Hosted Checkout methods: card + Afterpay/Clearpay (CAD). Enable Afterpay in Stripe Dashboard too. */
+export const STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES: Stripe.Checkout.SessionCreateParams.PaymentMethodType[] =
+  ["card", "afterpay_clearpay"];
+
+/** Shared options so Afterpay/Clearpay appears on Stripe Checkout (needs address for BNPL eligibility). */
+export function stripeCheckoutBnplOptions(): Pick<
+  Stripe.Checkout.SessionCreateParams,
+  | "payment_method_types"
+  | "billing_address_collection"
+  | "phone_number_collection"
+  | "shipping_address_collection"
+> {
+  return {
+    payment_method_types: [...STRIPE_CHECKOUT_PAYMENT_METHOD_TYPES],
+    billing_address_collection: "required",
+    phone_number_collection: { enabled: true },
+    // Afterpay/Clearpay requires a shipping address even for services
+    shipping_address_collection: {
+      allowed_countries: ["CA", "US"],
+    },
+  };
+}
 
 export function isPaymentProvider(value: string): value is PaymentProvider {
   return (PAYMENT_PROVIDERS as readonly string[]).includes(value);
@@ -87,6 +111,7 @@ export async function createBookingCheckoutSession(input: CheckoutSessionInput):
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
       customer_email: input.clientEmail,
+      ...stripeCheckoutBnplOptions(),
       line_items: [
         {
           quantity: 1,
@@ -137,6 +162,7 @@ export async function createBalanceCheckoutSession(input: {
   const session = await getStripe().checkout.sessions.create({
     mode: "payment",
     customer_email: input.clientEmail,
+    ...stripeCheckoutBnplOptions(),
     line_items: [
       {
         quantity: 1,
