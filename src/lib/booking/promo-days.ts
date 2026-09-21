@@ -1,5 +1,8 @@
+import { addDays, addMonths, addWeeks, differenceInCalendarWeeks, parseISO } from "date-fns";
 import { couponLabel } from "@/lib/booking/coupons";
 import { asWeeklyHours, formatCad, zonedParts, type WeeklyWindow } from "@/lib/booking/money";
+
+export type PromoRecurrence = "none" | "weekly" | "biweekly" | "monthly";
 
 export type PromoDayCoupon = {
   id: string;
@@ -9,34 +12,58 @@ export type PromoDayCoupon = {
   amount: number;
 };
 
-/** serviceId → reduced base price in cents (null/omit = regular price) */
+/**
+ * Price map keys:
+ * - `serviceId` → base service (no variant / fallback)
+ * - `serviceId:variantId` → specific variant
+ */
 export type PromoServicePrices = Record<string, number | null | undefined>;
 
 export type PromoDayRow = {
   id?: string;
+  /** Start date YYYY-MM-DD */
   date: string;
+  /** End date YYYY-MM-DD (inclusive); defaults to date */
+  endDate?: string;
+  recurrence?: PromoRecurrence | string;
   staffId: string;
   closed: boolean;
   active: boolean;
   windows: unknown;
   serviceIds: string[];
   coupon?: PromoDayCoupon | null;
-  /** Per-service reduced base prices for this promo day */
   servicePrices?: PromoServicePrices;
 };
 
 export type SlotPromo = {
   promoDayId?: string;
-  /** Coupon code when coupon-based; otherwise a promo-day marker */
   code: string;
   name: string;
   type: "percent" | "fixed" | "price";
   amount: number;
   label: string;
-  /** Precomputed discount vs current cart when known */
   discountCents?: number;
   servicePrices?: PromoServicePrices;
 };
+
+export function promoPriceKey(serviceId: string, variantId?: string | null) {
+  return variantId ? `${serviceId}:${variantId}` : serviceId;
+}
+
+export function resolvePromoUnitPrice(
+  prices: PromoServicePrices | undefined,
+  serviceId: string,
+  variantId?: string | null,
+): number | null {
+  if (!prices) return null;
+  if (variantId) {
+    const specific = prices[promoPriceKey(serviceId, variantId)];
+    if (typeof specific === "number" && specific >= 0) return specific;
+  }
+  const base = prices[serviceId];
+  if (typeof base === "number" && base >= 0) return base;
+  return null;
+}
 
 function asWindows(value: unknown): WeeklyWindow[] {
   if (!Array.isArray(value)) return [];
@@ -84,6 +111,107 @@ export function unionWindows(windows: WeeklyWindow[]): WeeklyWindow[] {
   return out;
 }
 
+export function promoEndDate(promo: { date: string; endDate?: string | null }) {
+  const end = (promo.endDate || "").trim();
+  return end && end >= promo.date ? end : promo.date;
+}
+
+function parseDateOnly(ymd: string) {
+  return parseISO(`${ymd}T12:00:00`);
+}
+
+function formatDateOnly(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Whether this promo rule applies on a specific calendar day. */
+export function promoAppliesOnDate(
+  promo: { date: string; endDate?: string | null; recurrence?: string | null; active?: boolean; closed?: boolean },
+  dateKey: string,
+): boolean {
+  if (promo.active === false || promo.closed) return false;
+  const start = promo.date;
+  const end = promoEndDate(promo);
+  if (dateKey < start || dateKey > end) return false;
+
+  const recurrence = (promo.recurrence || "none") as PromoRecurrence;
+  if (recurrence === "none") return true;
+
+  const startDt = parseDateOnly(start);
+  const dayDt = parseDateOnly(dateKey);
+
+  if (recurrence === "weekly") {
+    return dayDt.getDay() === startDt.getDay();
+  }
+  if (recurrence === "biweekly") {
+    if (dayDt.getDay() !== startDt.getDay()) return false;
+    const weeks = differenceInCalendarWeeks(dayDt, startDt, { weekStartsOn: 0 });
+    return weeks % 2 === 0;
+  }
+  if (recurrence === "monthly") {
+    return dayDt.getDate() === startDt.getDate();
+  }
+  return true;
+}
+
+/** Expand a promo rule into concrete YYYY-MM-DD dates (for duplicate / preview). */
+export function expandPromoOccurrenceDates(input: {
+  startDate: string;
+  endDate?: string | null;
+  recurrence?: string | null;
+  /** Cap expanded dates (safety). */
+  maxDates?: number;
+}): string[] {
+  const start = input.startDate;
+  const end = input.endDate && input.endDate >= start ? input.endDate : start;
+  const recurrence = (input.recurrence || "none") as PromoRecurrence;
+  const maxDates = Math.min(Math.max(input.maxDates || 366, 1), 730);
+  const out: string[] = [];
+
+  if (recurrence === "none") {
+    let cursor = parseDateOnly(start);
+    const last = parseDateOnly(end);
+    while (cursor <= last && out.length < maxDates) {
+      out.push(formatDateOnly(cursor));
+      cursor = addDays(cursor, 1);
+    }
+    return out;
+  }
+
+  if (recurrence === "weekly" || recurrence === "biweekly") {
+    const step = recurrence === "biweekly" ? 2 : 1;
+    let cursor = parseDateOnly(start);
+    const last = parseDateOnly(end);
+    while (cursor <= last && out.length < maxDates) {
+      out.push(formatDateOnly(cursor));
+      cursor = addWeeks(cursor, step);
+    }
+    return out;
+  }
+
+  if (recurrence === "monthly") {
+    let cursor = parseDateOnly(start);
+    const last = parseDateOnly(end);
+    const dom = cursor.getDate();
+    while (cursor <= last && out.length < maxDates) {
+      out.push(formatDateOnly(cursor));
+      const next = addMonths(cursor, 1);
+      // Clamp to same DOM when month is shorter
+      const clamped = new Date(next.getFullYear(), next.getMonth(), Math.min(dom, 28));
+      // Prefer real DOM if month has it
+      const daysInMonth = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+      cursor = new Date(next.getFullYear(), next.getMonth(), Math.min(dom, daysInMonth), 12);
+      void clamped;
+    }
+    return out;
+  }
+
+  return [start];
+}
+
 /** True when every requested service is covered by this promo day. */
 export function promoDayCoversServices(promo: PromoDayRow, serviceIds: string[]) {
   if (!promo.active || promo.closed || !serviceIds.length || !promo.serviceIds.length) return false;
@@ -103,14 +231,16 @@ export function promoWindowsForStaffDate(
   serviceIds: string[],
 ): WeeklyWindow[] {
   const matched = promos.filter(
-    (p) => p.date === dateKey && p.staffId === staffId && promoDayCoversServices(p, serviceIds),
+    (p) =>
+      p.staffId === staffId &&
+      promoAppliesOnDate(p, dateKey) &&
+      promoDayCoversServices(p, serviceIds),
   );
   return unionWindows(matched.flatMap((p) => asWindows(p.windows)));
 }
 
 /**
  * Merge promo-day hours into the per-day window map used by computeAvailableSlots.
- * Promo days add (union) open windows for matching staff + services — they do not close other days.
  */
 export function mergePromoDayWindows(input: {
   dayWindows: Record<string, WeeklyWindow[] | null>;
@@ -125,8 +255,12 @@ export function mergePromoDayWindows(input: {
   const dates = new Set<string>([
     ...Object.keys(input.dayWindows),
     ...Object.keys(input.dayKeyByDate),
-    ...input.promos.filter((p) => p.staffId === input.staffId).map((p) => p.date),
   ]);
+
+  // Also include dates from promo ranges that fall in the known dayKey map
+  for (const dateKey of Object.keys(input.dayKeyByDate)) {
+    dates.add(dateKey);
+  }
 
   for (const dateKey of dates) {
     const promoWindows = promoWindowsForStaffDate(
@@ -154,7 +288,7 @@ export function mergePromoDayWindows(input: {
   return next;
 }
 
-/** Pick matching promo day that covers services (with coupon and/or price overrides). */
+/** Pick matching promo for a booking date + staff + services. */
 export function findMatchingPromoDay(
   promos: PromoDayRow[],
   input: { dateKey: string; staffId: string | null; serviceIds: string[] },
@@ -162,12 +296,11 @@ export function findMatchingPromoDay(
   if (!input.staffId) return null;
   const matched = promos.filter(
     (p) =>
-      p.date === input.dateKey &&
       p.staffId === input.staffId &&
+      promoAppliesOnDate(p, input.dateKey) &&
       promoDayCoversServices(p, input.serviceIds) &&
       promoHasDiscount(p),
   );
-  // Prefer days with price overrides, then coupon
   matched.sort((a, b) => {
     const aPrices = Object.values(a.servicePrices || {}).some((p) => typeof p === "number");
     const bPrices = Object.values(b.servicePrices || {}).some((p) => typeof p === "number");
@@ -178,38 +311,13 @@ export function findMatchingPromoDay(
 }
 
 /**
- * Discount from per-service promo base prices.
- * lines are resolved booking lines (price already qty-expanded).
- */
-export function discountCentsFromServicePrices(
-  lines: { serviceId: string; priceCents: number }[],
-  servicePrices: PromoServicePrices | undefined,
-) {
-  if (!servicePrices) return 0;
-  let discount = 0;
-  for (const line of lines) {
-    const promoPrice = servicePrices[line.serviceId];
-    if (typeof promoPrice !== "number" || promoPrice < 0) continue;
-    // line.priceCents may be qty * unit; scale promo price by inferring unit from... 
-    // Better: treat promoPriceCents as unit price and we need quantity.
-    // For simplicity store promo as total replacement for the line's service total when qty=1,
-    // or as unit price. Admin UI will set unit promo price; lines from resolveBookingItems
-    // multiply by quantity. So we need unit regular vs unit promo.
-    // Without unit on line, approximate: if promoPrice <= line.priceCents, discount = line - promo
-    // (works for qty=1). For qty>1, admin sets unit promo and we need quantity on line.
-    discount += Math.max(0, line.priceCents - promoPrice);
-  }
-  return discount;
-}
-
-/**
- * Compute discount for a promo day: prefer per-service base prices when any are set;
+ * Compute discount for a promo day: prefer per-service/variant base prices when any are set;
  * otherwise fall back to linked coupon (percent or fixed $).
  */
 export function discountForPromoDay(input: {
   promo: PromoDayRow;
   fullSubtotalCents: number;
-  lines: { serviceId: string; priceCents: number; quantity?: number }[];
+  lines: { serviceId: string; variantId?: string | null; priceCents: number; quantity?: number }[];
 }): { discountCents: number; code: string; label: string; type: SlotPromo["type"] } {
   const prices = input.promo.servicePrices || {};
   const hasPrices = Object.values(prices).some((p) => typeof p === "number" && p >= 0);
@@ -217,13 +325,11 @@ export function discountForPromoDay(input: {
   if (hasPrices) {
     let discountCents = 0;
     for (const line of input.lines) {
-      const unitPromo = prices[line.serviceId];
-      if (typeof unitPromo !== "number" || unitPromo < 0) continue;
+      const unitPromo = resolvePromoUnitPrice(prices, line.serviceId, line.variantId);
+      if (unitPromo == null) continue;
       const qty = Math.max(1, line.quantity || 1);
-      // line.priceCents is already qty * unit regular
       const regularUnit = Math.round(line.priceCents / qty);
-      const lineDiscount = Math.max(0, regularUnit - unitPromo) * qty;
-      discountCents += lineDiscount;
+      discountCents += Math.max(0, regularUnit - unitPromo) * qty;
     }
     discountCents = Math.max(0, Math.min(input.fullSubtotalCents, discountCents));
     return {
@@ -253,7 +359,7 @@ export function discountForPromoDay(input: {
 
 export function slotPromoFromDay(
   promo: PromoDayRow | null,
-  lines?: { serviceId: string; priceCents: number; quantity?: number }[],
+  lines?: { serviceId: string; variantId?: string | null; priceCents: number; quantity?: number }[],
   fullSubtotalCents?: number,
 ): SlotPromo | null {
   if (!promo || !promoHasDiscount(promo)) return null;
@@ -298,7 +404,6 @@ export function slotPromoFromDay(
   };
 }
 
-/** Discount amount for a full service subtotal given coupon type/amount. */
 export function discountCentsForSubtotal(
   fullSubtotalCents: number,
   coupon: { type: string; amount: number },
@@ -323,7 +428,7 @@ export function attachPromoToSlots<T extends { start: string; staffId?: string |
   promos: PromoDayRow[],
   serviceIds: string[],
   timeZone: string,
-  lines?: { serviceId: string; priceCents: number; quantity?: number }[],
+  lines?: { serviceId: string; variantId?: string | null; priceCents: number; quantity?: number }[],
   fullSubtotalCents?: number,
 ): (T & { promo: SlotPromo | null })[] {
   return slots.map((slot) => {
@@ -350,4 +455,17 @@ export function formatPromoDiscountLabel(
     return discountCents > 0 ? `promo price (−${formatCad(discountCents)})` : "promo price";
   }
   return `−${formatCad(discountCents || promo.amount)}`;
+}
+
+export function recurrenceLabel(recurrence: string | null | undefined) {
+  switch (recurrence) {
+    case "weekly":
+      return "Weekly";
+    case "biweekly":
+      return "Every 2 weeks";
+    case "monthly":
+      return "Monthly";
+    default:
+      return "Date range";
+  }
 }

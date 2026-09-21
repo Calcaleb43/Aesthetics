@@ -39,3 +39,9 @@ export async function appointmentManageUrl(appointmentId: string) {
   const token = await signManageToken(appointmentId);
   return `${siteUrl()}/book-now/manage?token=${encodeURIComponent(token)}`;
 }
+
+/** Intermediate page: verifies the held slot is still open, else pick a new time before Stripe. */
+export async function appointmentCompletePaymentUrl(appointmentId: string) {
+  const token = await signManageToken(appointmentId);
+  return `${siteUrl()}/book-now/complete-payment?token=${encodeURIComponent(token)}`;
+}

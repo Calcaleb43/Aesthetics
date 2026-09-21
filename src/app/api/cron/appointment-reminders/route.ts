@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { addHours, subHours } from "date-fns";
 import { appointmentDisplayTitle } from "@/lib/booking/labels";
-import { appointmentManageUrl } from "@/lib/booking/manage-token";
+import { appointmentManageUrl, appointmentCompletePaymentUrl } from "@/lib/booking/manage-token";
 import { emailAppointmentReminder, emailAppointmentThankYou } from "@/lib/email/resend";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { notifyAdmins } from "@/lib/notifications";
@@ -85,7 +85,9 @@ async function run(req: Request) {
       categorySlug: row.category.slug,
       manageUrl,
       paymentUrl:
-        row.status === "pending_payment" && row.stripeCheckoutUrl ? row.stripeCheckoutUrl : null,
+        row.status === "pending_payment"
+          ? await appointmentCompletePaymentUrl(row.id)
+          : null,
     });
 
     await notifyAdmins(db, {

@@ -23,11 +23,11 @@ const TABS: { id: TabId; label: string; summary: string }[] = [
   { id: "studio", label: "Studio hours", summary: "Default open days and times for public booking." },
   { id: "staff", label: "Staff hours", summary: "Per-provider schedules (or inherit studio hours)." },
   { id: "days", label: "Day edits", summary: "Close or customize a single calendar day." },
-    {
-      id: "promos",
-      label: "Promo days",
-      summary: "Extra open hours + automatic coupon discount for selected services and staff.",
-    },
+  {
+    id: "promos",
+    label: "Promo days",
+    summary: "Date ranges, recurrence, and discounts for services/variants (coupon or promo price).",
+  },
   { id: "blocks", label: "Blocked times", summary: "Vacations, breaks, and unavailable ranges." },
   { id: "rules", label: "Booking rules", summary: "Slot size, buffers, lead time, and booking on/off." },
 ];

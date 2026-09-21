@@ -27,7 +27,22 @@ import {
   gridHourBounds,
 } from "@/lib/booking/weekly-hours";
 
-type ServiceOption = { id: string; title: string; slug: string; categorySlug?: string; categoryTitle?: string };
+type ServiceVariantOption = {
+  id: string;
+  title: string;
+  slug: string;
+  priceCents: number;
+  durationMinutes: number;
+};
+
+type ServiceOption = {
+  id: string;
+  title: string;
+  slug: string;
+  categorySlug?: string;
+  categoryTitle?: string;
+  variants?: ServiceVariantOption[];
+};
 
 type StaffOption = {
   id: string;
@@ -63,6 +78,7 @@ type Appointment = {
   balanceDueLabel?: string | null;
   serviceId: string;
   serviceIds?: string[];
+  items?: { serviceId: string; variantIds: string[] }[];
   serviceTitle: string;
   serviceSlug: string;
   serviceLabel: string | null;
@@ -132,13 +148,77 @@ function moneyInputFromCents(cents: number | null | undefined) {
   return Number.isInteger(dollars) ? String(dollars) : dollars.toFixed(2);
 }
 
-/** Parse a dollars string from an admin input into cents; empty → 0. Invalid → null. */
 function parseMoneyInput(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return 0;
   const dollars = Number(trimmed);
   if (Number.isNaN(dollars) || dollars < 0) return null;
   return Math.round(dollars * 100);
+}
+
+function serviceHasVariants(s: ServiceOption) {
+  return Boolean(s.variants && s.variants.length > 0);
+}
+
+function emptyFormFields() {
+  return {
+    serviceIds: [] as string[],
+    variantIdsByService: {} as Record<string, string[]>,
+    staffId: "",
+    clientId: "",
+    clientName: "",
+    clientEmail: "",
+    clientPhone: "",
+    notes: "",
+    startsAt: "",
+    paymentMode: "deposit",
+    priceDollars: "",
+    depositDollars: "",
+    amountPaidDollars: "",
+    discountDollars: "",
+  };
+}
+
+function defaultSelection(services: ServiceOption[]) {
+  const first = services[0];
+  if (!first) {
+    return { serviceIds: [] as string[], variantIdsByService: {} as Record<string, string[]> };
+  }
+  if (serviceHasVariants(first)) {
+    const firstVariantId = first.variants![0]?.id;
+    return {
+      serviceIds: firstVariantId ? [first.id] : [],
+      variantIdsByService: firstVariantId ? { [first.id]: [firstVariantId] } : {},
+    };
+  }
+  return { serviceIds: [first.id], variantIdsByService: {} as Record<string, string[]> };
+}
+
+function buildBookingItems(
+  serviceIds: string[],
+  variantIdsByService: Record<string, string[]>,
+  services: ServiceOption[],
+) {
+  return serviceIds.map((serviceId) => {
+    const svc = services.find((s) => s.id === serviceId);
+    return {
+      serviceId,
+      variantIds: svc && serviceHasVariants(svc) ? variantIdsByService[serviceId] || [] : [],
+    };
+  });
+}
+
+function selectionComplete(
+  serviceIds: string[],
+  variantIdsByService: Record<string, string[]>,
+  services: ServiceOption[],
+) {
+  if (!serviceIds.length) return false;
+  return serviceIds.every((id) => {
+    const svc = services.find((s) => s.id === id);
+    if (!svc || !serviceHasVariants(svc)) return true;
+    return (variantIdsByService[id] || []).length > 0;
+  });
 }
 
 export function AdminCalendar({
@@ -171,19 +251,7 @@ export function AdminCalendar({
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [createStartsAt, setCreateStartsAt] = useState("");
   const [form, setForm] = useState({
-    serviceIds: [] as string[],
-    staffId: "",
-    clientId: "",
-    clientName: "",
-    clientEmail: "",
-    clientPhone: "",
-    notes: "",
-    startsAt: "",
-    paymentMode: "deposit",
-    priceDollars: "",
-    depositDollars: "",
-    amountPaidDollars: "",
-    discountDollars: "",
+    ...emptyFormFields(),
   });
   const [recurrence, setRecurrence] = useState({
     frequency: "none" as "none" | "weekly" | "biweekly",
@@ -294,24 +362,23 @@ export function AdminCalendar({
       if (cancelled || !res.ok || !data.client) return;
       const c = data.client;
       const starts = toLocalInputValue(new Date());
-      const defaultServiceId = initialServices[0]?.id || "";
-      const assigned = staff.filter((s) => s.serviceIds.includes(defaultServiceId));
+      const selection = defaultSelection(initialServices);
+      const assigned = staff.filter((s) =>
+        selection.serviceIds.length
+          ? selection.serviceIds.every((id) => s.serviceIds.includes(id))
+          : false,
+      );
       const hasAssignees = assigned.length > 0;
       setCreateStartsAt(starts);
       setForm({
-        serviceIds: defaultServiceId ? [defaultServiceId] : [],
+        ...emptyFormFields(),
+        ...selection,
         staffId: hasAssignees ? assigned[0]?.id || "" : "",
         clientId: c.id,
         clientName: c.name,
         clientEmail: c.email,
         clientPhone: c.phone || "",
-        notes: "",
         startsAt: starts,
-        paymentMode: "deposit",
-        priceDollars: "",
-        depositDollars: "",
-        amountPaidDollars: "",
-        discountDollars: "",
       });
       setClientQuery(`${c.name} · ${c.email}`);
       setClientSuggestions([]);
@@ -384,15 +451,64 @@ export function AdminCalendar({
 
   function toggleService(serviceId: string) {
     setForm((f) => {
-      const nextIds = f.serviceIds.includes(serviceId)
+      const removing = f.serviceIds.includes(serviceId);
+      const nextIds = removing
         ? f.serviceIds.filter((id) => id !== serviceId)
         : [...f.serviceIds, serviceId];
+      const nextVariants = { ...f.variantIdsByService };
+      if (removing) {
+        delete nextVariants[serviceId];
+      } else {
+        const svc = initialServices.find((s) => s.id === serviceId);
+        if (svc && serviceHasVariants(svc)) {
+          // Require explicit variant picks; leave empty until chosen.
+          nextVariants[serviceId] = nextVariants[serviceId] || [];
+        }
+      }
       const allowed = staffForServices(nextIds, f.staffId);
       const staffStillOk = !f.staffId || allowed.some((s) => s.id === f.staffId);
       const hasAssignees = staff.some((s) => nextIds.every((id) => s.serviceIds.includes(id)));
       return {
         ...f,
         serviceIds: nextIds,
+        variantIdsByService: nextVariants,
+        staffId: staffStillOk
+          ? f.staffId
+          : hasAssignees
+            ? allowed[0]?.id || ""
+            : "",
+      };
+    });
+  }
+
+  function toggleVariant(serviceId: string, variantId: string) {
+    setForm((f) => {
+      const current = f.variantIdsByService[serviceId] || [];
+      const nextVariantsForService = current.includes(variantId)
+        ? current.filter((id) => id !== variantId)
+        : [...current, variantId];
+      const nextVariants = { ...f.variantIdsByService };
+      let nextIds = f.serviceIds;
+
+      if (!nextVariantsForService.length) {
+        delete nextVariants[serviceId];
+        nextIds = f.serviceIds.filter((id) => id !== serviceId);
+      } else {
+        nextVariants[serviceId] = nextVariantsForService;
+        if (!f.serviceIds.includes(serviceId)) {
+          nextIds = [...f.serviceIds, serviceId];
+        }
+      }
+
+      const allowed = staffForServices(nextIds, f.staffId);
+      const staffStillOk = !f.staffId || allowed.some((s) => s.id === f.staffId);
+      const hasAssignees = staff.some((s) =>
+        nextIds.length ? nextIds.every((id) => s.serviceIds.includes(id)) : false,
+      );
+      return {
+        ...f,
+        serviceIds: nextIds,
+        variantIdsByService: nextVariants,
         staffId: staffStillOk
           ? f.staffId
           : hasAssignees
@@ -405,27 +521,19 @@ export function AdminCalendar({
   function openCreate(at: Date) {
     if (!canWrite) return;
     const starts = toLocalInputValue(at);
-    const defaultServiceId = initialServices[0]?.id || "";
-    const ids = defaultServiceId ? [defaultServiceId] : [];
-    const assigned = staffForServices(ids);
+    const selection = defaultSelection(initialServices);
+    const assigned = staffForServices(selection.serviceIds);
     const hasAssignees = staff.some((s) =>
-      ids.length ? ids.every((id) => s.serviceIds.includes(id)) : false,
+      selection.serviceIds.length
+        ? selection.serviceIds.every((id) => s.serviceIds.includes(id))
+        : false,
     );
     setCreateStartsAt(starts);
     setForm({
-      serviceIds: ids,
+      ...emptyFormFields(),
+      ...selection,
       staffId: hasAssignees ? assigned[0]?.id || "" : "",
-      clientId: "",
-      clientName: "",
-      clientEmail: "",
-      clientPhone: "",
-      notes: "",
       startsAt: starts,
-      paymentMode: "deposit",
-      priceDollars: "",
-      depositDollars: "",
-      amountPaidDollars: "",
-      discountDollars: "",
     });
     setClientQuery("");
     setClientSuggestions([]);
@@ -436,8 +544,21 @@ export function AdminCalendar({
 
   function openEdit(appt: Appointment) {
     setSelected(appt);
+    const serviceIds = appt.serviceIds?.length
+      ? appt.serviceIds
+      : appt.serviceId
+        ? [appt.serviceId]
+        : [];
+    const variantIdsByService: Record<string, string[]> = {};
+    if (appt.items?.length) {
+      for (const item of appt.items) {
+        if (item.variantIds?.length) variantIdsByService[item.serviceId] = [...item.variantIds];
+      }
+    }
     setForm({
-      serviceIds: appt.serviceIds?.length ? appt.serviceIds : appt.serviceId ? [appt.serviceId] : [],
+      ...emptyFormFields(),
+      serviceIds,
+      variantIdsByService,
       staffId: appt.staffId || "",
       clientId: appt.clientId || "",
       clientName: appt.clientName,
@@ -464,10 +585,14 @@ export function AdminCalendar({
   async function submitCreate(e: FormEvent) {
     e.preventDefault();
     if (!canWrite) return;
+    if (!selectionComplete(form.serviceIds, form.variantIdsByService, initialServices)) {
+      setError("Select at least one service (and a variant when the service has options)");
+      return;
+    }
     setSaving(true);
     setError("");
     const body: Record<string, unknown> = {
-      serviceIds: form.serviceIds,
+      items: buildBookingItems(form.serviceIds, form.variantIdsByService, initialServices),
       staffId: form.staffId || null,
       clientId: form.clientId || null,
       startsAt: new Date(form.startsAt || createStartsAt).toISOString(),
@@ -583,8 +708,8 @@ export function AdminCalendar({
 
   async function saveEdit(e: FormEvent) {
     e.preventDefault();
-    if (!form.serviceIds.length) {
-      setError("Select at least one service");
+    if (!selectionComplete(form.serviceIds, form.variantIdsByService, initialServices)) {
+      setError("Select at least one service (and a variant when the service has options)");
       return;
     }
     const priceCents = parseMoneyInput(form.priceDollars);
@@ -608,7 +733,7 @@ export function AdminCalendar({
         clientName: form.clientName,
         clientEmail: form.clientEmail,
         clientPhone: form.clientPhone || null,
-        serviceIds: form.serviceIds,
+        items: buildBookingItems(form.serviceIds, form.variantIdsByService, initialServices),
         paymentMode: form.paymentMode,
         priceCents,
         depositCents,
@@ -1049,9 +1174,52 @@ export function AdminCalendar({
                   {(drawer === "create" || drawer === "edit") ? (
                     <fieldset className="grid gap-2 text-sm text-white/70">
                       <legend className="mb-1">Services</legend>
-                      <div className="max-h-48 space-y-2 overflow-y-auto rounded-lg border border-white/10 p-3">
+                      <div className="max-h-56 space-y-3 overflow-y-auto rounded-lg border border-white/10 p-3">
                         {initialServices.map((s) => {
+                          const hasVariants = serviceHasVariants(s);
                           const checked = form.serviceIds.includes(s.id);
+                          const chosenVariants = form.variantIdsByService[s.id] || [];
+                          if (hasVariants) {
+                            return (
+                              <div key={s.id} className="space-y-1.5">
+                                <div>
+                                  <p className="text-sm text-white/80">{s.title}</p>
+                                  {s.categoryTitle ? (
+                                    <p className="text-[0.65rem] uppercase tracking-[0.12em] text-white/40">
+                                      {s.categoryTitle}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <div className="ml-1 space-y-1 border-l border-white/10 pl-3">
+                                  {(s.variants || []).map((v) => {
+                                    const on = chosenVariants.includes(v.id);
+                                    return (
+                                      <label
+                                        key={v.id}
+                                        className="flex items-start gap-2 text-sm text-white/75"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="mt-1"
+                                          checked={on}
+                                          onChange={() => toggleVariant(s.id, v.id)}
+                                        />
+                                        <span>
+                                          {v.title}
+                                          <span className="mt-0.5 block text-[0.65rem] text-white/40">
+                                            {formatCad(v.priceCents)} · {v.durationMinutes} min
+                                          </span>
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                                {checked && !chosenVariants.length ? (
+                                  <p className="text-xs text-amber-200/80">Select at least one option</p>
+                                ) : null}
+                              </div>
+                            );
+                          }
                           return (
                             <label key={s.id} className="flex items-start gap-2 text-sm text-white/80">
                               <input

@@ -256,37 +256,45 @@ export async function POST(req: Request) {
       where: {
         active: true,
         closed: false,
-        date: bookingDateKey,
+        date: { lte: bookingDateKey },
+        endDate: { gte: bookingDateKey },
         staffId,
         services: { some: { serviceId: { in: serviceIds } } },
       },
       include: {
-        services: { select: { serviceId: true, promoPriceCents: true } },
+        services: { select: { serviceId: true, variantId: true, promoPriceCents: true } },
         coupon: true,
       },
     });
     const match = findMatchingPromoDay(
-      dayPromos.map((r) => ({
-        id: r.id,
-        date: r.date,
-        staffId: r.staffId,
-        closed: r.closed,
-        active: r.active,
-        windows: r.windows,
-        serviceIds: r.services.map((s) => s.serviceId),
-        servicePrices: Object.fromEntries(
-          r.services.map((s) => [s.serviceId, s.promoPriceCents]),
-        ),
-        coupon: r.coupon
-          ? {
-              id: r.coupon.id,
-              code: r.coupon.code,
-              name: r.coupon.name,
-              type: r.coupon.type,
-              amount: r.coupon.amount,
-            }
-          : null,
-      })),
+      dayPromos.map((r) => {
+        const servicePrices: Record<string, number | null> = {};
+        for (const s of r.services) {
+          const key = s.variantId ? `${s.serviceId}:${s.variantId}` : s.serviceId;
+          servicePrices[key] = s.promoPriceCents;
+        }
+        return {
+          id: r.id,
+          date: r.date,
+          endDate: r.endDate,
+          recurrence: r.recurrence,
+          staffId: r.staffId,
+          closed: r.closed,
+          active: r.active,
+          windows: r.windows,
+          serviceIds: [...new Set(r.services.map((s) => s.serviceId))],
+          servicePrices,
+          coupon: r.coupon
+            ? {
+                id: r.coupon.id,
+                code: r.coupon.code,
+                name: r.coupon.name,
+                type: r.coupon.type,
+                amount: r.coupon.amount,
+              }
+            : null,
+        };
+      }),
       { dateKey: bookingDateKey, staffId, serviceIds },
     );
 
@@ -296,6 +304,7 @@ export async function POST(req: Request) {
         fullSubtotalCents: rawCharge.priceCents,
         lines: lines.map((l) => ({
           serviceId: l.serviceId,
+          variantId: l.variantId,
           priceCents: l.priceCents,
           quantity: l.quantity,
         })),
@@ -497,9 +506,10 @@ export async function POST(req: Request) {
       },
     });
 
-    // Payment-hold email with checkout link
+    // Payment-hold email — gate checks slot availability before Stripe
     try {
       const { emailAppointmentBooked } = await import("@/lib/email/resend");
+      const { appointmentCompletePaymentUrl } = await import("@/lib/booking/manage-token");
       const whenLabel = new Intl.DateTimeFormat("en-CA", {
         timeZone: settings.timezone,
         dateStyle: "full",
@@ -513,7 +523,7 @@ export async function POST(req: Request) {
         serviceTitle: serviceLabel,
         whenLabel,
         amountChargedCents: charge.totalCents,
-        paymentUrl: session.checkoutUrl,
+        paymentUrl: await appointmentCompletePaymentUrl(appointment.id),
       });
     } catch (emailErr) {
       console.error("Pending payment email failed", emailErr);

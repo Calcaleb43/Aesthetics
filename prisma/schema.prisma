@@ -162,6 +162,7 @@ model ServiceVariant {
   updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   appointmentLines AppointmentService[]
+  promoDayLinks    PromoDayService[]
 
   @@unique([serviceId, slug])
   @@index([serviceId, sortOrder])
@@ -497,42 +498,57 @@ model Coupon {
   @@map("coupons")
 }
 
-/// Extra open hours for selected services + staff on a calendar day.
-/// Discount via linked coupon (percent or fixed $) and/or per-service promo prices.
+/// Extra open hours for selected services (+ variants) and staff.
+/// Supports a date range and optional weekly/biweekly/monthly recurrence.
+/// Discount via linked coupon (percent or fixed $) and/or per-service/variant promo prices.
 model PromoDay {
-  id        String            @id @default(uuid()) @db.Uuid
-  /// Calendar date in studio timezone as YYYY-MM-DD
-  date      String            @db.VarChar(10)
-  couponId  String?           @map("coupon_id") @db.Uuid
-  coupon    Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  staffId   String            @map("staff_id") @db.Uuid
-  staff     Admin             @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  closed    Boolean           @default(false)
-  windows   Json              @default("[]")
-  note      String            @default("") @db.VarChar(200)
-  active    Boolean           @default(true)
-  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  services  PromoDayService[]
+  id          String            @id @default(uuid()) @db.Uuid
+  /// First calendar day (YYYY-MM-DD, studio TZ). Also the weekday/DOM anchor for recurrence.
+  date        String            @db.VarChar(10)
+  /// Last calendar day inclusive (YYYY-MM-DD). Empty or equal to `date` = single day.
+  endDate     String            @default("") @map("end_date") @db.VarChar(10)
+  /// none = every day in range; weekly/biweekly = same weekday; monthly = same day-of-month
+  recurrence  String            @default("none") @db.VarChar(20)
+  couponId    String?           @map("coupon_id") @db.Uuid
+  coupon      Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  staffId     String            @map("staff_id") @db.Uuid
+  staff       Admin             @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  closed      Boolean           @default(false)
+  windows     Json              @default("[]")
+  note        String            @default("") @db.VarChar(200)
+  active      Boolean           @default(true)
+  /// Optional group id when duplicating a series of one-off days
+  seriesId    String?           @map("series_id") @db.Uuid
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  services    PromoDayService[]
 
   @@index([date])
+  @@index([endDate])
   @@index([staffId])
   @@index([couponId])
-  @@index([active, date])
+  @@index([active, date, endDate])
+  @@index([seriesId])
   @@map("promo_days")
 }
 
 model PromoDayService {
-  id             String   @id @default(uuid()) @db.Uuid
-  promoDayId     String   @map("promo_day_id") @db.Uuid
-  promoDay       PromoDay @relation(fields: [promoDayId], references: [id], onDelete: Cascade)
-  serviceId      String   @map("service_id") @db.Uuid
-  service        Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  /// Optional reduced base price for this service on the promo day (cents). Null = use regular price (+ coupon if linked).
-  promoPriceCents Int?    @map("promo_price_cents")
+  id              String          @id @default(uuid()) @db.Uuid
+  promoDayId      String          @map("promo_day_id") @db.Uuid
+  promoDay        PromoDay        @relation(fields: [promoDayId], references: [id], onDelete: Cascade)
+  serviceId       String          @map("service_id") @db.Uuid
+  service         Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  /// Null / empty = base service (or all variants inherit). Set = specific variant price.
+  variantId       String?         @map("variant_id") @db.Uuid
+  variant         ServiceVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  /// "" when no variant; otherwise variant uuid — used for uniqueness
+  variantKey      String          @default("") @map("variant_key") @db.VarChar(64)
+  /// Optional reduced base/unit price (cents). Null = regular price (+ coupon if linked).
+  promoPriceCents Int?            @map("promo_price_cents")
 
-  @@unique([promoDayId, serviceId])
+  @@unique([promoDayId, serviceId, variantKey])
   @@index([serviceId])
+  @@index([variantId])
   @@map("promo_day_services")
 }
 

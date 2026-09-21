@@ -2,8 +2,20 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
+type VariantOpt = { id: string; title: string; priceCents: number; priceLabel: string };
+
+type ServiceOpt = {
+  id: string;
+  title: string;
+  priceCents: number;
+  priceLabel: string;
+  variants: VariantOpt[];
+};
+
 type ServiceRow = {
   id: string;
+  serviceId?: string;
+  variantId: string | null;
   title: string;
   regularPriceCents?: number;
   regularPriceLabel?: string;
@@ -14,6 +26,10 @@ type ServiceRow = {
 type PromoDayItem = {
   id: string;
   date: string;
+  endDate: string;
+  recurrence: string;
+  recurrenceLabel?: string;
+  seriesId: string | null;
   staffId: string;
   staffName: string | null;
   couponId: string | null;
@@ -31,13 +47,13 @@ type PromoDayItem = {
 type Option = {
   id: string;
   name?: string;
-  title?: string;
   code?: string;
   type?: string;
   amount?: number;
-  priceCents?: number;
-  priceLabel?: string;
 };
+
+/** Selection key: serviceId or serviceId:variantId */
+type PriceEntry = { serviceId: string; variantId: string | null; dollars: string };
 
 function dollarsFromCents(cents: number | null | undefined) {
   if (cents == null || Number.isNaN(cents)) return "";
@@ -53,6 +69,10 @@ function centsFromDollars(raw: string): number | null {
   return Math.round(n * 100);
 }
 
+function entryKey(serviceId: string, variantId: string | null) {
+  return variantId ? `${serviceId}:${variantId}` : serviceId;
+}
+
 export function PromoDaysPanel({
   canWrite = true,
   canManageAll = false,
@@ -63,7 +83,7 @@ export function PromoDaysPanel({
   staff?: { id: string; name: string }[];
 }) {
   const [rows, setRows] = useState<PromoDayItem[]>([]);
-  const [services, setServices] = useState<Option[]>([]);
+  const [services, setServices] = useState<ServiceOpt[]>([]);
   const [coupons, setCoupons] = useState<Option[]>([]);
   const [staffOptions, setStaffOptions] = useState<Option[]>([]);
   const [status, setStatus] = useState("");
@@ -72,15 +92,16 @@ export function PromoDaysPanel({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [date, setDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [recurrence, setRecurrence] = useState<"none" | "weekly" | "biweekly" | "monthly">("none");
+  const [materialize, setMaterialize] = useState(false);
   const [staffId, setStaffId] = useState("");
   const [couponId, setCouponId] = useState("");
   const [start, setStart] = useState("10:00");
   const [end, setEnd] = useState("18:00");
   const [note, setNote] = useState("");
   const [active, setActive] = useState(true);
-  /** serviceId → promo price dollars string (empty = no override) */
-  const [servicePrices, setServicePrices] = useState<Record<string, string>>({});
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [entries, setEntries] = useState<Record<string, PriceEntry>>({});
 
   async function load() {
     try {
@@ -120,46 +141,67 @@ export function PromoDaysPanel({
   function openCreate() {
     setEditingId(null);
     setDate("");
+    setEndDate("");
+    setRecurrence("none");
+    setMaterialize(false);
     setStaffId(staff[0]?.id || staffOptions[0]?.id || "");
     setCouponId("");
     setStart("10:00");
     setEnd("18:00");
     setNote("");
     setActive(true);
-    setSelectedServiceIds([]);
-    setServicePrices({});
+    setEntries({});
     setModalOpen(true);
   }
 
   function openEdit(row: PromoDayItem) {
     setEditingId(row.id);
     setDate(row.date);
+    setEndDate(row.endDate || row.date);
+    setRecurrence(
+      row.recurrence === "weekly" || row.recurrence === "biweekly" || row.recurrence === "monthly"
+        ? row.recurrence
+        : "none",
+    );
+    setMaterialize(false);
     setStaffId(row.staffId);
     setCouponId(row.couponId || "");
     setStart(row.windows[0]?.start || "10:00");
     setEnd(row.windows[0]?.end || "18:00");
     setNote(row.note || "");
     setActive(row.active);
-    setSelectedServiceIds(row.serviceIds || []);
-    const prices: Record<string, string> = {};
+    const next: Record<string, PriceEntry> = {};
     for (const s of row.services || []) {
-      prices[s.id] = dollarsFromCents(s.promoPriceCents);
+      const serviceId = s.serviceId || s.id;
+      const variantId = s.variantId || null;
+      const key = entryKey(serviceId, variantId);
+      next[key] = {
+        serviceId,
+        variantId,
+        dollars: dollarsFromCents(s.promoPriceCents),
+      };
     }
-    setServicePrices(prices);
+    setEntries(next);
     setModalOpen(true);
   }
 
-  function toggleService(id: string) {
-    setSelectedServiceIds((prev) => {
-      if (prev.includes(id)) {
-        setServicePrices((p) => {
-          const next = { ...p };
-          delete next[id];
-          return next;
-        });
-        return prev.filter((x) => x !== id);
-      }
-      return [...prev, id];
+  function toggleBaseService(serviceId: string) {
+    const key = entryKey(serviceId, null);
+    setEntries((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = { serviceId, variantId: null, dollars: "" };
+      return next;
+    });
+  }
+
+  function toggleVariant(serviceId: string, variantId: string) {
+    const key = entryKey(serviceId, variantId);
+    setEntries((prev) => {
+      const next = { ...prev };
+      if (next[key]) delete next[key];
+      else next[key] = { serviceId, variantId, dollars: "" };
+      return next;
     });
   }
 
@@ -170,18 +212,20 @@ export function PromoDaysPanel({
       setStatus("Select staff for this promo day");
       return;
     }
-    if (!selectedServiceIds.length) {
-      setStatus("Select at least one service");
+    const list = Object.values(entries);
+    if (!list.length) {
+      setStatus("Select at least one service or variant");
       return;
     }
 
-    const servicesPayload = selectedServiceIds.map((serviceId) => ({
-      serviceId,
-      promoPriceCents: centsFromDollars(servicePrices[serviceId] || ""),
+    const servicesPayload = list.map((e) => ({
+      serviceId: e.serviceId,
+      variantId: e.variantId,
+      promoPriceCents: centsFromDollars(e.dollars),
     }));
     const hasPrices = servicesPayload.some((s) => s.promoPriceCents != null);
     if (!couponId && !hasPrices) {
-      setStatus("Add a coupon and/or set a promo price on at least one service");
+      setStatus("Add a coupon and/or set a promo price on at least one service/variant");
       return;
     }
 
@@ -193,6 +237,9 @@ export function PromoDaysPanel({
       body: JSON.stringify({
         id: editingId || undefined,
         date,
+        endDate: endDate || date,
+        recurrence,
+        materialize: !editingId && materialize && recurrence !== "none",
         staffId,
         couponId: couponId || null,
         closed: false,
@@ -209,7 +256,40 @@ export function PromoDaysPanel({
       return;
     }
     setModalOpen(false);
-    setStatus(editingId ? "Promo day updated" : "Promo day saved");
+    setStatus(
+      data.promoDays?.length
+        ? `Created ${data.promoDays.length} promo days`
+        : editingId
+          ? "Promo day updated"
+          : "Promo day saved",
+    );
+    await load();
+  }
+
+  async function duplicate(row: PromoDayItem, mode: "weekly" | "biweekly" | "monthly") {
+    if (!canWrite) return;
+    const count = window.prompt(
+      mode === "monthly"
+        ? "How many months to copy forward?"
+        : mode === "biweekly"
+          ? "How many biweekly copies?"
+          : "How many weekly copies?",
+      "8",
+    );
+    if (!count) return;
+    const n = Math.min(52, Math.max(1, Number(count) || 8));
+    setStatus("Duplicating…");
+    const res = await fetch("/api/admin/promo-days", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "duplicate", id: row.id, mode, count: n }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setStatus(data.error || "Could not duplicate");
+      return;
+    }
+    setStatus(`Created ${data.count || n} copies`);
     await load();
   }
 
@@ -225,6 +305,18 @@ export function PromoDaysPanel({
     await load();
   }
 
+  async function removeSeries(seriesId: string) {
+    if (!canWrite) return;
+    if (!window.confirm("Remove this entire duplicated series?")) return;
+    await fetch("/api/admin/promo-days", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seriesId }),
+    });
+    setStatus("Series removed");
+    await load();
+  }
+
   const providers = staffOptions.length ? staffOptions : staff;
 
   return (
@@ -233,8 +325,9 @@ export function PromoDaysPanel({
         <div>
           <h2 className="text-lg font-semibold text-white">Promo days</h2>
           <p className="mt-1 text-sm text-white/50">
-            Extra hours for selected services and staff. Reduce price with a coupon (percent or fixed
-            $) and/or a custom promo price per service.
+            Date ranges or recurring days for selected services and variants. Discount with a coupon
+            (percent / fixed $) and/or custom promo prices. Duplicate weekly or monthly for quick
+            series.
           </p>
         </div>
         {canWrite ? (
@@ -252,7 +345,12 @@ export function PromoDaysPanel({
           >
             <div>
               <p className="font-medium text-white">
-                {r.date}
+                {r.date === r.endDate ? r.date : `${r.date} → ${r.endDate}`}
+                {r.recurrence && r.recurrence !== "none" ? (
+                  <span className="ml-2 text-[0.62rem] uppercase tracking-[0.12em] text-[#c6a75e]">
+                    {r.recurrenceLabel || r.recurrence}
+                  </span>
+                ) : null}
                 {!r.active ? (
                   <span className="ml-2 text-[0.62rem] uppercase tracking-[0.12em] text-white/40">
                     inactive
@@ -263,7 +361,13 @@ export function PromoDaysPanel({
                 {r.windows.map((w) => `${w.start}–${w.end}`).join(", ") || "No hours"}
                 {r.staffName ? ` · ${r.staffName}` : ""}
                 {r.couponCode
-                  ? ` · coupon ${r.couponCode}${r.couponType === "fixed" ? " (fixed $)" : r.couponType === "percent" ? " (%)" : ""}`
+                  ? ` · coupon ${r.couponCode}${
+                      r.couponType === "fixed"
+                        ? " (fixed $)"
+                        : r.couponType === "percent"
+                          ? " (%)"
+                          : ""
+                    }`
                   : ""}
               </p>
               <p className="mt-1 text-xs text-white/40">
@@ -278,7 +382,7 @@ export function PromoDaysPanel({
               </p>
             </div>
             {canWrite ? (
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
                   className="text-xs uppercase tracking-[0.12em] text-[#c6a75e]"
@@ -286,6 +390,29 @@ export function PromoDaysPanel({
                 >
                   Edit
                 </button>
+                <button
+                  type="button"
+                  className="text-xs uppercase tracking-[0.12em] text-white/55"
+                  onClick={() => void duplicate(r, "weekly")}
+                >
+                  + Weekly
+                </button>
+                <button
+                  type="button"
+                  className="text-xs uppercase tracking-[0.12em] text-white/55"
+                  onClick={() => void duplicate(r, "monthly")}
+                >
+                  + Monthly
+                </button>
+                {r.seriesId ? (
+                  <button
+                    type="button"
+                    className="text-xs uppercase tracking-[0.12em] text-red-300/80"
+                    onClick={() => void removeSeries(r.seriesId!)}
+                  >
+                    Remove series
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="text-xs uppercase tracking-[0.12em] text-red-300"
@@ -314,16 +441,61 @@ export function PromoDaysPanel({
               {editingId ? "Edit promo day" : "Add promo day"}
             </h3>
             <div className="mt-4 grid gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="grid gap-1 text-sm text-white/70">
+                  Start date
+                  <input
+                    type="date"
+                    className="admin-input"
+                    value={date}
+                    onChange={(e) => {
+                      setDate(e.target.value);
+                      if (!endDate || endDate < e.target.value) setEndDate(e.target.value);
+                    }}
+                    required
+                  />
+                </label>
+                <label className="grid gap-1 text-sm text-white/70">
+                  End date
+                  <input
+                    type="date"
+                    className="admin-input"
+                    value={endDate || date}
+                    min={date || undefined}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    required
+                  />
+                </label>
+              </div>
               <label className="grid gap-1 text-sm text-white/70">
-                Date
-                <input
-                  type="date"
+                Repeat
+                <select
                   className="admin-input"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required
-                />
+                  value={recurrence}
+                  onChange={(e) =>
+                    setRecurrence(e.target.value as "none" | "weekly" | "biweekly" | "monthly")
+                  }
+                >
+                  <option value="none">Every day in range</option>
+                  <option value="weekly">Weekly (same weekday)</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly (same day of month)</option>
+                </select>
               </label>
+              {!editingId && recurrence !== "none" ? (
+                <label className="flex items-start gap-2 text-sm text-white/70">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={materialize}
+                    onChange={(e) => setMaterialize(e.target.checked)}
+                  />
+                  <span>
+                    Create separate days for each occurrence (easier to edit individually). Leave
+                    unchecked to keep one recurring rule.
+                  </span>
+                </label>
+              ) : null}
               <label className="grid gap-1 text-sm text-white/70">
                 Staff
                 <select
@@ -348,7 +520,7 @@ export function PromoDaysPanel({
                   value={couponId}
                   onChange={(e) => setCouponId(e.target.value)}
                 >
-                  <option value="">None — use service promo prices only</option>
+                  <option value="">None — use promo prices only</option>
                   {coupons.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.code}
@@ -361,10 +533,6 @@ export function PromoDaysPanel({
                     </option>
                   ))}
                 </select>
-                <span className="text-xs text-white/40">
-                  Create coupons under Coupons. Fixed = dollar off; percent = % off. Or set promo
-                  prices below.
-                </span>
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <label className="grid gap-1 text-sm text-white/70">
@@ -389,45 +557,104 @@ export function PromoDaysPanel({
                 </label>
               </div>
               <fieldset className="grid gap-2 text-sm text-white/70">
-                <legend>Services &amp; promo prices</legend>
+                <legend>Services &amp; variants</legend>
                 <p className="text-xs text-white/40">
-                  Check a service to include it. Optional promo price (CAD) sets a reduced base price
-                  for that service on this day.
+                  Select a base service and/or specific variants. Optional promo price sets a reduced
+                  base price for that item.
                 </p>
-                <div className="max-h-56 space-y-3 overflow-y-auto rounded-lg border border-white/10 p-3">
+                <div className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-white/10 p-3">
                   {services.map((s) => {
-                    const checked = selectedServiceIds.includes(s.id);
+                    const baseKey = entryKey(s.id, null);
+                    const baseChecked = Boolean(entries[baseKey]);
                     return (
-                      <div key={s.id} className="grid gap-1 border-b border-white/5 pb-3 last:border-0 last:pb-0">
+                      <div
+                        key={s.id}
+                        className="grid gap-2 border-b border-white/5 pb-3 last:border-0 last:pb-0"
+                      >
                         <label className="flex items-start gap-2 text-sm text-white/80">
                           <input
                             type="checkbox"
                             className="mt-1"
-                            checked={checked}
-                            onChange={() => toggleService(s.id)}
+                            checked={baseChecked}
+                            onChange={() => toggleBaseService(s.id)}
                           />
                           <span>
-                            {s.title || s.name}
+                            {s.title}
                             <span className="mt-0.5 block text-xs text-white/40">
-                              Regular {s.priceLabel || "—"}
+                              Base · regular {s.priceLabel}
                             </span>
                           </span>
                         </label>
-                        {checked ? (
+                        {baseChecked ? (
                           <label className="ml-6 grid gap-1 text-xs text-white/55">
-                            Promo price (CAD, optional)
+                            Promo price (CAD)
                             <input
                               type="number"
                               min={0}
                               step="0.01"
                               className="admin-input"
-                              placeholder="e.g. 120"
-                              value={servicePrices[s.id] || ""}
+                              placeholder="Leave blank for coupon-only"
+                              value={entries[baseKey]?.dollars || ""}
                               onChange={(e) =>
-                                setServicePrices((prev) => ({ ...prev, [s.id]: e.target.value }))
+                                setEntries((prev) => ({
+                                  ...prev,
+                                  [baseKey]: {
+                                    serviceId: s.id,
+                                    variantId: null,
+                                    dollars: e.target.value,
+                                  },
+                                }))
                               }
                             />
                           </label>
+                        ) : null}
+                        {s.variants?.length ? (
+                          <div className="ml-4 space-y-2 border-l border-white/10 pl-3">
+                            {s.variants.map((v) => {
+                              const vKey = entryKey(s.id, v.id);
+                              const checked = Boolean(entries[vKey]);
+                              return (
+                                <div key={v.id} className="grid gap-1">
+                                  <label className="flex items-start gap-2 text-sm text-white/75">
+                                    <input
+                                      type="checkbox"
+                                      className="mt-1"
+                                      checked={checked}
+                                      onChange={() => toggleVariant(s.id, v.id)}
+                                    />
+                                    <span>
+                                      {v.title}
+                                      <span className="mt-0.5 block text-xs text-white/40">
+                                        Variant · regular {v.priceLabel}
+                                      </span>
+                                    </span>
+                                  </label>
+                                  {checked ? (
+                                    <label className="ml-6 grid gap-1 text-xs text-white/55">
+                                      Promo price (CAD)
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step="0.01"
+                                        className="admin-input"
+                                        value={entries[vKey]?.dollars || ""}
+                                        onChange={(e) =>
+                                          setEntries((prev) => ({
+                                            ...prev,
+                                            [vKey]: {
+                                              serviceId: s.id,
+                                              variantId: v.id,
+                                              dollars: e.target.value,
+                                            },
+                                          }))
+                                        }
+                                      />
+                                    </label>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
                         ) : null}
                       </div>
                     );

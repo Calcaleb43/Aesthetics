@@ -19,7 +19,7 @@ import {
   staffForAllServices,
   type BookingItemInput,
 } from "@/lib/booking/service";
-import { dayKeyFromWeekday, zonedParts, type WeeklyWindow } from "@/lib/booking/money";
+import { dayKeyFromWeekday, zonedLocalToUtc, zonedParts, type WeeklyWindow } from "@/lib/booking/money";
 import { effectiveWeeklyHours } from "@/lib/booking/weekly-hours";
 import { getPrisma, hasDatabase } from "@/lib/db";
 import { getSettings } from "@/lib/content/queries";
@@ -114,6 +114,7 @@ export async function GET(req: Request) {
   const addonIds = parseAddonIds(url);
   const fromParam = url.searchParams.get("from");
   const toParam = url.searchParams.get("to");
+  const dateParam = url.searchParams.get("date"); // YYYY-MM-DD in studio timezone
   const staffIdParam = url.searchParams.get("staffId");
   const datesOnly = url.searchParams.get("datesOnly") === "1";
   const monthParam = url.searchParams.get("month"); // YYYY-MM
@@ -156,7 +157,15 @@ export async function GET(req: Request) {
 
     let from: Date;
     let to: Date;
-    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+    let filterDateKey: string | null = null;
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      const [y, m, d] = dateParam.split("-").map(Number);
+      from = zonedLocalToUtc(y, m, d, 0, 0, settings.timezone);
+      const noon = zonedLocalToUtc(y, m, d, 12, 0, settings.timezone);
+      const nextParts = zonedParts(addDays(noon, 1), settings.timezone);
+      to = zonedLocalToUtc(nextParts.year, nextParts.month, nextParts.day, 0, 0, settings.timezone);
+      filterDateKey = dateParam;
+    } else if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
       const [y, m] = monthParam.split("-").map(Number);
       from = startOfMonth(new Date(Date.UTC(y, m - 1, 1, 12)));
       to = endOfMonth(from);
@@ -205,15 +214,13 @@ export async function GET(req: Request) {
           where: {
             active: true,
             closed: false,
-            date: {
-              gte: dateKeyFromParts(zonedParts(from, settings.timezone)),
-              lte: dateKeyFromParts(zonedParts(addDays(to, -1), settings.timezone)),
-            },
+            date: { lte: dateKeyFromParts(zonedParts(addDays(to, -1), settings.timezone)) },
+            endDate: { gte: dateKeyFromParts(zonedParts(from, settings.timezone)) },
             staffId: promoStaffFilter,
             services: { some: { serviceId: { in: serviceIds } } },
           },
           include: {
-            services: { select: { serviceId: true, promoPriceCents: true } },
+            services: { select: { serviceId: true, variantId: true, variantKey: true, promoPriceCents: true } },
             coupon: {
               select: {
                 id: true,
@@ -247,17 +254,22 @@ export async function GET(req: Request) {
               amount: r.coupon.amount,
             }
           : null;
+      const servicePrices: Record<string, number | null> = {};
+      for (const s of r.services) {
+        const key = s.variantId ? `${s.serviceId}:${s.variantId}` : s.serviceId;
+        servicePrices[key] = s.promoPriceCents;
+      }
       return {
         id: r.id,
         date: r.date,
+        endDate: r.endDate,
+        recurrence: r.recurrence,
         staffId: r.staffId,
         closed: r.closed,
         active: r.active,
         windows: r.windows,
-        serviceIds: r.services.map((s) => s.serviceId),
-        servicePrices: Object.fromEntries(
-          r.services.map((s) => [s.serviceId, s.promoPriceCents]),
-        ),
+        serviceIds: [...new Set(r.services.map((s) => s.serviceId))],
+        servicePrices,
         coupon,
       };
     });
@@ -398,12 +410,15 @@ export async function GET(req: Request) {
     ].sort();
 
     const slotsWithPromo = attachPromoToSlots(
-      slots,
+      filterDateKey
+        ? slots.filter((s) => dateKeyFromParts(zonedParts(new Date(s.start), settings.timezone)) === filterDateKey)
+        : slots,
       promoDays,
       serviceIds,
       settings.timezone,
       lines.map((l) => ({
         serviceId: l.serviceId,
+        variantId: l.variantId,
         priceCents: l.priceCents,
         quantity: l.quantity,
       })),

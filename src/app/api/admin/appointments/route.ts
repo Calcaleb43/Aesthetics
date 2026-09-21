@@ -94,7 +94,13 @@ export async function GET(req: Request) {
         category: { select: { id: true, title: true, slug: true } },
         lines: {
           orderBy: { sortOrder: "asc" },
-          select: { serviceId: true, title: true, durationMinutes: true, priceCents: true },
+          select: {
+            serviceId: true,
+            variantId: true,
+            title: true,
+            durationMinutes: true,
+            priceCents: true,
+          },
         },
         staff: { select: { id: true, name: true, color: true } },
       },
@@ -142,6 +148,16 @@ export async function GET(req: Request) {
       const title = appointmentDisplayTitle(row);
       const lineIds = row.lines.map((l) => l.serviceId);
       const balanceDueCents = estimateBalanceDueCents(row, settings?.hstRateBps ?? 1300);
+      const itemsByService = new Map<string, string[]>();
+      for (const line of row.lines) {
+        const list = itemsByService.get(line.serviceId) || [];
+        if (line.variantId) list.push(line.variantId);
+        itemsByService.set(line.serviceId, list);
+      }
+      const items = [...itemsByService.entries()].map(([serviceId, variantIds]) => ({
+        serviceId,
+        variantIds,
+      }));
       return {
         id: row.id,
         status: row.status,
@@ -166,7 +182,8 @@ export async function GET(req: Request) {
         categoryId: row.categoryId,
         categoryTitle: row.category.title,
         serviceId: row.serviceId || lineIds[0] || "",
-        serviceIds: lineIds.length ? lineIds : row.serviceId ? [row.serviceId] : [],
+        serviceIds: lineIds.length ? [...new Set(lineIds)] : row.serviceId ? [row.serviceId] : [],
+        items,
         serviceTitle: title,
         serviceSlug: row.service?.slug || row.category.slug,
         serviceLabel: row.serviceLabel,
@@ -177,6 +194,23 @@ export async function GET(req: Request) {
       };
     }),
   });
+}
+
+const bookingItemSchema = z.object({
+  serviceId: z.string().uuid(),
+  variantIds: z.array(z.string().uuid()).optional(),
+  quantity: z.number().int().min(1).max(20).optional(),
+  variantQuantities: z.record(z.string(), z.number().int().min(1).max(20)).optional(),
+});
+
+function itemsFromAppointmentLines(lines: { serviceId: string; variantId: string | null }[]) {
+  const byService = new Map<string, string[]>();
+  for (const line of lines) {
+    const list = byService.get(line.serviceId) || [];
+    if (line.variantId) list.push(line.variantId);
+    byService.set(line.serviceId, list);
+  }
+  return [...byService.entries()].map(([serviceId, variantIds]) => ({ serviceId, variantIds }));
 }
 
 const patchSchema = z.object({
@@ -193,6 +227,7 @@ const patchSchema = z.object({
   clientPhone: z.string().max(64).nullable().optional(),
   serviceId: z.string().uuid().optional(),
   serviceIds: z.array(z.string().uuid()).min(1).optional(),
+  items: z.array(bookingItemSchema).min(1).optional(),
   clientId: z.string().uuid().nullable().optional(),
   /** When true, skip automatic cancel/confirm/reschedule emails (UI will prompt instead). */
   skipAnnounce: z.boolean().optional(),
@@ -238,17 +273,26 @@ export async function PATCH(req: Request) {
     }
   }
 
+  const servicesTouched = Boolean(
+    parsed.data.items?.length || parsed.data.serviceIds || parsed.data.serviceId,
+  );
+
   let nextServiceIds =
     parsed.data.serviceIds ||
     (parsed.data.serviceId ? [parsed.data.serviceId] : null) ||
     (existing.lines.length
-      ? existing.lines.map((l) => l.serviceId)
+      ? [...new Set(existing.lines.map((l) => l.serviceId))]
       : existing.serviceId
         ? [existing.serviceId]
         : []);
 
-  if (parsed.data.serviceIds || parsed.data.serviceId) {
-    const bookingItems = normalizeBookingItems({ serviceIds: nextServiceIds });
+  if (servicesTouched) {
+    const bookingItems = normalizeBookingItems({
+      items: parsed.data.items,
+      serviceIds: parsed.data.items?.length
+        ? undefined
+        : parsed.data.serviceIds || (parsed.data.serviceId ? [parsed.data.serviceId] : undefined),
+    });
     if (!bookingItems) {
       return NextResponse.json({ error: "Service not found" }, { status: 404 });
     }
@@ -285,7 +329,7 @@ export async function PATCH(req: Request) {
   const nextStaffId =
     data.staffId !== undefined ? (data.staffId as string | null) : existing.staffId;
 
-  if (parsed.data.staffId !== undefined || parsed.data.serviceId !== undefined || parsed.data.serviceIds) {
+  if (parsed.data.staffId !== undefined || servicesTouched) {
     const staffCheck = await assertStaffForServices(gate.db, nextServiceIds, nextStaffId);
     if (!staffCheck.ok) {
       return NextResponse.json({ error: staffCheck.error }, { status: 400 });
@@ -296,7 +340,14 @@ export async function PATCH(req: Request) {
     data.startsAt = new Date(parsed.data.startsAt);
     if (parsed.data.endsAt) data.endsAt = new Date(parsed.data.endsAt);
     else {
-      const bookingItems = normalizeBookingItems({ serviceIds: nextServiceIds });
+      const bookingItems = servicesTouched
+        ? normalizeBookingItems({
+            items: parsed.data.items,
+            serviceIds: parsed.data.items?.length
+              ? undefined
+              : parsed.data.serviceIds || (parsed.data.serviceId ? [parsed.data.serviceId] : undefined),
+          })
+        : normalizeBookingItems({ items: itemsFromAppointmentLines(existing.lines) });
       const lines = bookingItems
         ? await resolveBookingItems(gate.db, bookingItems, {
             requireVariants: false,
@@ -396,7 +447,7 @@ export async function PATCH(req: Request) {
   if (timeChanged) {
     changeLines.push(`Time: ${formatWhen(previousStartsAt)} → ${formatWhen(updated.startsAt)}`);
   }
-  if (parsed.data.serviceIds || parsed.data.serviceId) {
+  if (servicesTouched) {
     const before =
       existing.lines.map((l) => l.title).join(", ") ||
       existing.serviceLabel ||
@@ -485,27 +536,31 @@ export async function PATCH(req: Request) {
   });
 }
 
-const createSchema = z.object({
-  serviceId: z.string().uuid().optional(),
-  serviceIds: z.array(z.string().uuid()).min(1).optional(),
-  staffId: z.string().uuid().nullable().optional(),
-  clientId: z.string().uuid().nullable().optional(),
-  startsAt: z.string().datetime(),
-  clientName: z.string().min(1).max(160),
-  clientEmail: z.string().email(),
-  clientPhone: z.string().max(64).nullable().optional(),
-  notes: z.string().max(2000).optional(),
-  status: z.enum(["confirmed", "pending_payment"]).optional(),
-  recurrence: z
-    .object({
-      frequency: z.enum(["none", "weekly", "biweekly"]).default("none"),
-      count: z.number().int().min(1).max(26).optional(),
-      until: z.string().datetime().optional().nullable(),
-    })
-    .optional(),
-}).refine((v) => (v.serviceIds?.length || 0) > 0 || !!v.serviceId, {
-  message: "serviceIds required",
-});
+const createSchema = z
+  .object({
+    serviceId: z.string().uuid().optional(),
+    serviceIds: z.array(z.string().uuid()).min(1).optional(),
+    items: z.array(bookingItemSchema).min(1).optional(),
+    staffId: z.string().uuid().nullable().optional(),
+    clientId: z.string().uuid().nullable().optional(),
+    startsAt: z.string().datetime(),
+    clientName: z.string().min(1).max(160),
+    clientEmail: z.string().email(),
+    clientPhone: z.string().max(64).nullable().optional(),
+    notes: z.string().max(2000).optional(),
+    status: z.enum(["confirmed", "pending_payment"]).optional(),
+    recurrence: z
+      .object({
+        frequency: z.enum(["none", "weekly", "biweekly"]).default("none"),
+        count: z.number().int().min(1).max(26).optional(),
+        until: z.string().datetime().optional().nullable(),
+      })
+      .optional(),
+  })
+  .refine(
+    (v) => (v.items?.length || 0) > 0 || (v.serviceIds?.length || 0) > 0 || !!v.serviceId,
+    { message: "items or serviceIds required" },
+  );
 
 export async function POST(req: Request) {
   const gate = await requireAdminApi({ permission: "appointments_write" });
@@ -513,13 +568,16 @@ export async function POST(req: Request) {
   const parsed = createSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid" }, { status: 400 });
 
-  const serviceIds = parsed.data.serviceIds?.length
-    ? parsed.data.serviceIds
-    : parsed.data.serviceId
-      ? [parsed.data.serviceId]
-      : [];
-
-  const bookingItems = normalizeBookingItems({ serviceIds });
+  const bookingItems = normalizeBookingItems({
+    items: parsed.data.items,
+    serviceIds: parsed.data.items?.length
+      ? undefined
+      : parsed.data.serviceIds?.length
+        ? parsed.data.serviceIds
+        : parsed.data.serviceId
+          ? [parsed.data.serviceId]
+          : undefined,
+  });
   if (!bookingItems) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }

@@ -621,12 +621,8 @@ export function BookingWizard({
       setLoadingSlots(true);
       setError("");
       try {
-        const day = parseISO(`${selectedDay}T12:00:00`);
-        const from = day.toISOString();
-        const to = addDays(day, 1).toISOString();
         const params = new URLSearchParams({
-          from,
-          to,
+          date: selectedDay,
           items: JSON.stringify(bookingItems),
         });
         if (selectedAddonIds.length) params.set("addonIds", selectedAddonIds.join(","));

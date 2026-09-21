@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { addDays, endOfMonth, format, parseISO, startOfMonth } from "date-fns";
 
@@ -12,36 +12,25 @@ type AppointmentView = {
   endsAt: string;
   whenLabel: string;
   clientName: string;
-  clientEmail: string;
-  staffName: string | null;
+  amountDueCents: number;
+  amountDueLabel: string;
   staffId: string | null;
-  categorySlug: string;
+  staffName: string | null;
   serviceIds: string[];
-  items: { serviceId: string; variantId?: string | null; quantity?: number }[];
-  canCancel: boolean;
-  canReschedule: boolean;
-  minLeadHours: number;
+  items: { serviceId: string; variantIds: string[] }[];
   timezone: string;
 };
 
 type Slot = { start: string; end: string; staffId: string | null; staffName: string | null };
 
-function dateKeyInTimezone(iso: string, timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(iso));
-}
-
-export function ManageAppointmentClient({ token }: { token: string }) {
-  const [appointment, setAppointment] = useState<AppointmentView | null>(null);
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
+export function CompletePaymentClient({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [alreadyConfirmed, setAlreadyConfirmed] = useState(false);
+  const [slotAvailable, setSlotAvailable] = useState(true);
+  const [appointment, setAppointment] = useState<AppointmentView | null>(null);
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<"view" | "reschedule">("view");
+
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -49,29 +38,43 @@ export function ManageAppointmentClient({ token }: { token: string }) {
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedStart, setSelectedStart] = useState("");
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
 
   const timezone = appointment?.timezone || "America/Toronto";
+
+  const autoPayStarted = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/booking/manage?token=${encodeURIComponent(token)}`);
+      const res = await fetch(`/api/booking/complete-payment?token=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Could not load appointment");
+        setError(data.error || "Could not load booking");
         setAppointment(null);
         return;
       }
-      const appt = data.appointment as AppointmentView;
-      setAppointment(appt);
-      if (appt?.startsAt) {
-        const key = dateKeyInTimezone(appt.startsAt, appt.timezone || "America/Toronto");
-        const [y, m] = key.split("-").map(Number);
+      if (data.alreadyConfirmed) {
+        setAlreadyConfirmed(true);
+        setAppointment(data.appointment || null);
+        return;
+      }
+      setAlreadyConfirmed(false);
+      setSlotAvailable(Boolean(data.slotAvailable));
+      setAppointment(data.appointment || null);
+      if (data.appointment?.startsAt) {
+        const tzKey = new Intl.DateTimeFormat("en-CA", {
+          timeZone: data.appointment.timezone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date(data.appointment.startsAt));
+        const [y, m] = tzKey.split("-").map(Number);
         setMonth(startOfMonth(new Date(y, m - 1, 1)));
       }
     } catch {
-      setError("Could not load appointment");
+      setError("Could not load booking");
     } finally {
       setLoading(false);
     }
@@ -81,8 +84,47 @@ export function ManageAppointmentClient({ token }: { token: string }) {
     void load();
   }, [load]);
 
+  const continueToPay = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    const res = await fetch("/api/booking/complete-payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, action: "pay" }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.slotAvailable === false) {
+      setBusy(false);
+      setSlotAvailable(false);
+      setError(data.error || "That time is no longer available. Pick a new date and time.");
+      return;
+    }
+    if (!res.ok) {
+      setBusy(false);
+      setError(data.error || "Could not continue to payment");
+      return;
+    }
+    if (data.confirmed) {
+      window.location.href = `/book-now/success?appointment=${appointment?.id || ""}`;
+      return;
+    }
+    if (data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+    setBusy(false);
+    setError("Checkout is not available right now.");
+  }, [token, appointment?.id]);
+
+  // When the held slot is still open, go straight to checkout (email CTA → pay).
   useEffect(() => {
-    if (mode !== "reschedule" || !appointment) {
+    if (loading || !appointment || alreadyConfirmed || !slotAvailable || autoPayStarted.current) return;
+    autoPayStarted.current = true;
+    void continueToPay();
+  }, [loading, appointment, alreadyConfirmed, slotAvailable, continueToPay]);
+
+  useEffect(() => {
+    if (slotAvailable || !appointment) {
       setAvailableDates([]);
       return;
     }
@@ -100,11 +142,7 @@ export function ManageAppointmentClient({ token }: { token: string }) {
         const res = await fetch(`/api/booking/availability?${params}`);
         const data = await res.json();
         if (cancelled) return;
-        if (!res.ok) {
-          setAvailableDates([]);
-          return;
-        }
-        setAvailableDates(data.availableDates || []);
+        setAvailableDates(res.ok ? data.availableDates || [] : []);
       } catch {
         if (!cancelled) setAvailableDates([]);
       } finally {
@@ -114,17 +152,16 @@ export function ManageAppointmentClient({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [mode, appointment, month]);
+  }, [slotAvailable, appointment, month]);
 
   useEffect(() => {
-    if (mode !== "reschedule" || !appointment || !selectedDay) {
+    if (slotAvailable || !appointment || !selectedDay) {
       setSlots([]);
       return;
     }
     let cancelled = false;
     (async () => {
       setLoadingSlots(true);
-      setError("");
       try {
         const params = new URLSearchParams({
           date: selectedDay,
@@ -150,7 +187,7 @@ export function ManageAppointmentClient({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [mode, appointment, selectedDay]);
+  }, [slotAvailable, appointment, selectedDay]);
 
   const daysInMonth = useMemo(() => {
     const start = startOfMonth(month);
@@ -160,77 +197,61 @@ export function ManageAppointmentClient({ token }: { token: string }) {
     return days;
   }, [month]);
 
-  function openReschedule() {
-    if (!appointment) return;
-    const key = dateKeyInTimezone(appointment.startsAt, appointment.timezone);
-    const [y, m] = key.split("-").map(Number);
-    setMonth(startOfMonth(new Date(y, m - 1, 1)));
-    setSelectedDay(null);
-    setSelectedStart("");
-    setSlots([]);
-    setMode("reschedule");
-    setStatus("");
-    setError("");
-  }
-
-  function selectDay(day: Date) {
-    const key = format(day, "yyyy-MM-dd");
-    setSelectedDay(key);
-    setSelectedStart("");
-    setError("");
-  }
-
-  async function cancelAppointment() {
-    if (!appointment?.canCancel) return;
-    if (!window.confirm("Cancel this appointment? The studio will be notified.")) return;
+  async function confirmNewTimeAndPay() {
+    if (!selectedStart) return;
     setBusy(true);
     setError("");
-    setStatus("");
-    const res = await fetch("/api/booking/manage", {
+    const res = await fetch("/api/booking/complete-payment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action: "cancel" }),
+      body: JSON.stringify({
+        token,
+        action: "reschedule",
+        startsAt: selectedStart,
+        staffId: selectedStaffId,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Could not cancel");
+      setError(data.error || "Could not update your time");
       return;
     }
-    setStatus("Your appointment has been cancelled. A confirmation was sent by email.");
-    setMode("view");
-    await load();
-  }
-
-  async function confirmReschedule() {
-    if (!selectedStart || !appointment?.canReschedule) return;
-    setBusy(true);
-    setError("");
-    setStatus("");
-    const res = await fetch("/api/booking/manage", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, action: "reschedule", startsAt: selectedStart }),
-    });
-    const data = await res.json().catch(() => ({}));
-    setBusy(false);
-    if (!res.ok) {
-      setError(data.error || "Could not reschedule");
+    if (data.confirmed) {
+      window.location.href = `/book-now/success?appointment=${appointment?.id || ""}`;
       return;
     }
-    setStatus(`Rescheduled to ${data.whenLabel || "your new time"}. Confirmation sent.`);
-    setMode("view");
-    await load();
+    if (data.checkoutUrl) {
+      window.location.href = data.checkoutUrl;
+      return;
+    }
+    setError("Checkout is not available right now.");
   }
 
   if (loading) {
-    return <p className="text-sm text-[var(--ink-soft)]">Loading your appointment…</p>;
+    return <p className="text-sm text-[var(--ink-soft)]">Checking your booking…</p>;
+  }
+
+  if (alreadyConfirmed) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-[var(--gold-deep)]">This booking is already confirmed.</p>
+        {appointment ? (
+          <p className="text-sm text-[var(--ink-soft)]">
+            {appointment.title} · {appointment.whenLabel}
+          </p>
+        ) : null}
+        <Link href="/book-now" className="btn btn-gold">
+          Book another visit
+        </Link>
+      </div>
+    );
   }
 
   if (!appointment) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-red-700">{error || "This manage link is invalid or expired."}</p>
+        <p className="text-sm text-red-700">{error || "This payment link is invalid or expired."}</p>
         <Link href="/book-now" className="btn btn-gold">
           Book again
         </Link>
@@ -238,73 +259,40 @@ export function ManageAppointmentClient({ token }: { token: string }) {
     );
   }
 
-  const ended = ["cancelled", "completed", "expired", "no_show"].includes(appointment.status);
   const todayKey = format(new Date(), "yyyy-MM-dd");
 
   return (
     <div className="space-y-8">
       {error ? <p className="text-sm text-red-700">{error}</p> : null}
-      {status ? <p className="text-sm text-[var(--gold-deep)]">{status}</p> : null}
 
       <div className="rounded-2xl border border-[var(--line)] bg-white p-6 shadow-sm">
         <p className="text-[0.65rem] uppercase tracking-[0.16em] text-[var(--ink-soft)]">
-          {appointment.status.replace(/_/g, " ")}
+          Payment required
         </p>
         <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl">{appointment.title}</h2>
         <p className="mt-3 text-lg text-[var(--ink-soft)]">{appointment.whenLabel}</p>
         {appointment.staffName ? (
           <p className="mt-1 text-sm text-[var(--ink-soft)]">With {appointment.staffName}</p>
         ) : null}
-        <p className="mt-4 text-sm text-[var(--ink-soft)]">
-          {appointment.clientName} · {appointment.clientEmail}
-        </p>
+        <p className="mt-4 text-sm font-medium">Amount due now · {appointment.amountDueLabel}</p>
       </div>
 
-      {!ended ? (
-        <div className="flex flex-wrap gap-3">
-          {appointment.canReschedule ? (
-            <button type="button" className="btn btn-gold" disabled={busy} onClick={openReschedule}>
-              Reschedule
-            </button>
-          ) : null}
-          {appointment.canCancel ? (
-            <button type="button" className="btn" disabled={busy} onClick={() => void cancelAppointment()}>
-              {busy ? "Working…" : "Cancel appointment"}
-            </button>
-          ) : null}
-          {!appointment.canCancel && !appointment.canReschedule ? (
-            <p className="text-sm text-[var(--ink-soft)]">
-              Online cancel and reschedule close 48 hours before your visit. Please contact the studio for changes
-              inside that window.
-            </p>
-          ) : null}
+      {slotAvailable ? (
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--ink-soft)]">
+            Your selected time is still available. Continue to secure payment to confirm the booking.
+          </p>
+          <button type="button" className="btn btn-gold" disabled={busy} onClick={() => void continueToPay()}>
+            {busy ? "Opening checkout…" : "Continue to payment"}
+          </button>
         </div>
       ) : (
-        <Link href="/book-now" className="btn btn-gold">
-          Book a new appointment
-        </Link>
-      )}
-
-      {mode === "reschedule" && appointment.canReschedule ? (
         <div className="space-y-6 rounded-2xl border border-[var(--line)] p-6">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-semibold">Pick a new date &amp; time</h3>
-              <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                Same services · same duration · must stay at least 48 hours ahead
-              </p>
-            </div>
-            <button
-              type="button"
-              className="text-sm underline"
-              onClick={() => {
-                setMode("view");
-                setSelectedDay(null);
-                setSelectedStart("");
-              }}
-            >
-              Back
-            </button>
+          <div>
+            <h3 className="text-lg font-semibold">That time is no longer available</h3>
+            <p className="mt-1 text-sm text-[var(--ink-soft)]">
+              Pick a new date and time for the same services, then continue to payment.
+            </p>
           </div>
 
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
@@ -358,7 +346,12 @@ export function ManageAppointmentClient({ token }: { token: string }) {
                       key={key}
                       type="button"
                       disabled={disabled}
-                      onClick={() => selectDay(day)}
+                      onClick={() => {
+                        setSelectedDay(key);
+                        setSelectedStart("");
+                        setSelectedStaffId(null);
+                        setError("");
+                      }}
                       className={`aspect-square min-h-10 rounded-xl text-sm transition sm:min-h-0 ${
                         active
                           ? "bg-black text-white"
@@ -405,12 +398,17 @@ export function ManageAppointmentClient({ token }: { token: string }) {
                           hour: "numeric",
                           minute: "2-digit",
                         }).format(new Date(slot.start));
-                        const active = selectedStart === slot.start;
+                        const active =
+                          selectedStart === slot.start &&
+                          (selectedStaffId ?? null) === (slot.staffId ?? null);
                         return (
                           <button
                             key={`${slot.start}-${slot.staffId || "any"}`}
                             type="button"
-                            onClick={() => setSelectedStart(slot.start)}
+                            onClick={() => {
+                              setSelectedStart(slot.start);
+                              setSelectedStaffId(slot.staffId ?? null);
+                            }}
                             className={`rounded-xl px-3 py-3 text-sm transition ${
                               active ? "bg-black text-white" : "border border-black/15 hover:border-black/40"
                             }`}
@@ -437,20 +435,12 @@ export function ManageAppointmentClient({ token }: { token: string }) {
             type="button"
             className="btn btn-gold"
             disabled={!selectedDay || !selectedStart || busy}
-            onClick={() => void confirmReschedule()}
+            onClick={() => void confirmNewTimeAndPay()}
           >
-            {busy ? "Saving…" : "Confirm new time"}
+            {busy ? "Saving…" : "Confirm new time & pay"}
           </button>
         </div>
-      ) : null}
-
-      <p className="text-sm text-[var(--ink-soft)]">
-        Need help?{" "}
-        <Link href="/contact" className="underline">
-          Contact the studio
-        </Link>
-        .
-      </p>
+      )}
     </div>
   );
 }

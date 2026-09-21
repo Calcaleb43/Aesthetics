@@ -15,6 +15,15 @@ export default async function AdminAppointmentsPage() {
       slug: s.slug,
       categorySlug: s.categorySlug,
       categoryTitle: titleBySlug[s.categorySlug] || s.categorySlug,
+      variants: (s.variants || [])
+        .filter((v) => v.id && v.bookable !== false)
+        .map((v) => ({
+          id: v.id as string,
+          title: v.title,
+          slug: v.slug,
+          priceCents: v.priceCents,
+          durationMinutes: v.durationMinutes,
+        })),
     }));
 
   return (

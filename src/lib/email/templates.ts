@@ -211,7 +211,7 @@ export function renderAppointmentBooked(vars: AppointmentEmailVars): RenderedEma
         ...(balanceDue && !needsPayment ? [{ label: "Balance due", value: balanceDue }] : []),
       ],
       bodyHtml: needsPayment
-        ? `<p style="margin:0;">Use the button below to pay securely. This hold expires in <strong>${PENDING_HOLD_MINUTES} minutes</strong> if payment is not completed.</p>`
+        ? `<p style="margin:0;">First we confirm your selected time is still open, then take you to secure payment. If that slot was taken, you can choose a new date and time for the same services. This hold expires in <strong>${PENDING_HOLD_MINUTES} minutes</strong> if payment is not completed.</p>`
         : `<p style="margin:0 0 12px;">Please review policies and pre-care before your visit. Arrive on time — late arrivals may need to be shortened or rescheduled.</p>
         ${
           balanceDue
