@@ -62,6 +62,7 @@ export async function GET(req: Request) {
   const to = url.searchParams.get("to");
   const staffId = url.searchParams.get("staffId");
   const serviceId = url.searchParams.get("serviceId");
+  const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
 
   const where: Record<string, unknown> = {};
   if (status && status !== "all") {
@@ -104,7 +105,7 @@ export async function GET(req: Request) {
         },
         staff: { select: { id: true, name: true, color: true } },
       },
-      orderBy: { startsAt: "asc" },
+      orderBy: { startsAt: order },
       take: 500,
     }),
     gate.db.admin.findMany({

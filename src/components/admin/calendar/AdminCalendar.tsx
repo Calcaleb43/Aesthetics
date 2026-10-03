@@ -20,7 +20,14 @@ import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } f
 import { useRouter, useSearchParams } from "next/navigation";
 import { BlockedTimesPanel, type BlockedTimeItem } from "@/components/admin/calendar/BlockedTimesPanel";
 import { DayOverridesPanel } from "@/components/admin/calendar/DayOverridesPanel";
-import { dayKeyFromWeekday, type WeeklyHours, formatCad, estimateBalanceDueCents } from "@/lib/booking/money";
+import {
+  dayKeyFromWeekday,
+  type WeeklyHours,
+  formatCad,
+  estimateBalanceDueCents,
+  zonedLocalToUtc,
+  zonedParts,
+} from "@/lib/booking/money";
 import {
   closedRangesForDay,
   effectiveWeeklyHours,
@@ -88,6 +95,70 @@ type Appointment = {
 };
 
 type ViewMode = "month" | "week" | "day" | "list";
+
+type ListRange = "upcoming" | "today" | "next7" | "next30" | "past7" | "past30" | "custom";
+type TimeOfDay = "all" | "morning" | "afternoon" | "evening";
+
+const LIST_RANGE_OPTIONS: { id: ListRange; label: string }[] = [
+  { id: "upcoming", label: "Upcoming (next 90 days)" },
+  { id: "today", label: "Today" },
+  { id: "next7", label: "Next 7 days" },
+  { id: "next30", label: "Next 30 days" },
+  { id: "past7", label: "Past 7 days" },
+  { id: "past30", label: "Past 30 days" },
+  { id: "custom", label: "Custom dates" },
+];
+
+const TIME_OF_DAY_OPTIONS: { id: TimeOfDay; label: string }[] = [
+  { id: "all", label: "Any time" },
+  { id: "morning", label: "Morning (before 12pm)" },
+  { id: "afternoon", label: "Afternoon (12–5pm)" },
+  { id: "evening", label: "Evening (5pm+)" },
+];
+
+function shiftDateKey(key: string, days: number) {
+  const d = new Date(`${key}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function studioDayStart(key: string, timeZone: string) {
+  const [y, m, d] = key.split("-").map(Number);
+  return zonedLocalToUtc(y, m, d, 0, 0, timeZone);
+}
+
+/** List view bounds in studio time; `toKeyExclusive` is the day after the last included day. */
+function listRangeBounds(range: ListRange, customFrom: string, customTo: string, timeZone: string) {
+  const today = zonedParts(new Date(), timeZone).dateKey;
+  let fromKey = today;
+  let toKeyExclusive = shiftDateKey(today, 1);
+  if (range === "upcoming") {
+    return { from: new Date(), to: studioDayStart(shiftDateKey(today, 91), timeZone) };
+  }
+  if (range === "next7") toKeyExclusive = shiftDateKey(today, 7);
+  else if (range === "next30") toKeyExclusive = shiftDateKey(today, 30);
+  else if (range === "past7") fromKey = shiftDateKey(today, -7);
+  else if (range === "past30") fromKey = shiftDateKey(today, -30);
+  else if (range === "custom") {
+    let a = customFrom || today;
+    let b = customTo || a;
+    if (b < a) [a, b] = [b, a];
+    fromKey = a;
+    toKeyExclusive = shiftDateKey(b, 1);
+  }
+  return {
+    from: studioDayStart(fromKey, timeZone),
+    to: new Date(studioDayStart(toKeyExclusive, timeZone).getTime() - 1),
+  };
+}
+
+function matchesTimeOfDay(iso: string, filter: TimeOfDay, timeZone: string) {
+  if (filter === "all") return true;
+  const hour = zonedParts(new Date(iso), timeZone).hour;
+  if (filter === "morning") return hour < 12;
+  if (filter === "afternoon") return hour >= 12 && hour < 17;
+  return hour >= 17;
+}
 
 const STATUS_OPTIONS = [
   { id: "confirmed", label: "Confirmed (paid)" },
@@ -234,6 +305,11 @@ export function AdminCalendar({
   const searchParams = useSearchParams();
   const [view, setView] = useState<ViewMode>("week");
   const [cursor, setCursor] = useState(() => new Date());
+  const [listRange, setListRange] = useState<ListRange>("upcoming");
+  const [listFrom, setListFrom] = useState("");
+  const [listTo, setListTo] = useState("");
+  const [listSort, setListSort] = useState<"asc" | "desc">("asc");
+  const [listTimeOfDay, setListTimeOfDay] = useState<TimeOfDay>("all");
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [blocks, setBlocks] = useState<BlockedTimeItem[]>([]);
   const [staff, setStaff] = useState<StaffOption[]>([]);
@@ -281,11 +357,8 @@ export function AdminCalendar({
     if (view === "day") {
       return { from: startOfDay(cursor), to: endOfDay(cursor) };
     }
-    return {
-      from: startOfDay(cursor),
-      to: endOfDay(addDays(cursor, 60)),
-    };
-  }, [cursor, view, weekStartsOn]);
+    return listRangeBounds(listRange, listFrom, listTo, timezone);
+  }, [cursor, view, weekStartsOn, listRange, listFrom, listTo, timezone]);
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(cursor, { weekStartsOn });
@@ -302,6 +375,7 @@ export function AdminCalendar({
       if (staffFilter) params.set("staffId", staffFilter);
       if (serviceFilter) params.set("serviceId", serviceFilter);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (view === "list") params.set("order", listSort);
 
       const res = await fetch(`/api/admin/appointments?${params}`);
       const data = await res.json().catch(() => ({}));
@@ -325,7 +399,7 @@ export function AdminCalendar({
       setCanWrite(Boolean(data.canWrite));
       setCanManageAll(Boolean(data.canManageAll));
     });
-  }, [range.from, range.to, staffFilter, serviceFilter, statusFilter]);
+  }, [range.from, range.to, staffFilter, serviceFilter, statusFilter, view, listSort]);
 
   useEffect(() => {
     load();
@@ -799,6 +873,49 @@ export function AdminCalendar({
     });
   }, [blocks, staffFilter, range.from, range.to]);
 
+  /** List view: appointments + blocks filtered by time of day, sorted, grouped by studio day. */
+  const listGroups = useMemo(() => {
+    if (view !== "list") return [];
+    type Item =
+      | { kind: "appt"; startsAt: string; appt: Appointment }
+      | { kind: "block"; startsAt: string; block: BlockedTimeItem };
+    const items: Item[] = [
+      ...appointments
+        .filter((a) => matchesTimeOfDay(a.startsAt, listTimeOfDay, timezone))
+        .map((a) => ({ kind: "appt" as const, startsAt: a.startsAt, appt: a })),
+      ...visibleBlocks
+        .filter((b) => matchesTimeOfDay(b.startsAt, listTimeOfDay, timezone))
+        .map((b) => ({ kind: "block" as const, startsAt: b.startsAt, block: b })),
+    ];
+    const dir = listSort === "asc" ? 1 : -1;
+    items.sort((x, y) => dir * (new Date(x.startsAt).getTime() - new Date(y.startsAt).getTime()));
+    const groups: { key: string; label: string; items: Item[]; apptCount: number }[] = [];
+    for (const item of items) {
+      const key = zonedParts(new Date(item.startsAt), timezone).dateKey;
+      let group = groups[groups.length - 1];
+      if (!group || group.key !== key) {
+        group = {
+          key,
+          label: new Intl.DateTimeFormat("en-CA", {
+            timeZone: timezone,
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          }).format(new Date(item.startsAt)),
+          items: [],
+          apptCount: 0,
+        };
+        groups.push(group);
+      }
+      group.items.push(item);
+      if (item.kind === "appt") group.apptCount += 1;
+    }
+    return groups;
+  }, [view, appointments, visibleBlocks, listTimeOfDay, listSort, timezone]);
+
+  const listApptCount = listGroups.reduce((sum, g) => sum + g.apptCount, 0);
+
   const monthCells = useMemo(() => {
     const monthStart = startOfMonth(cursor);
     const gridStart = startOfWeek(monthStart, { weekStartsOn });
@@ -814,7 +931,9 @@ export function AdminCalendar({
         ? `${format(weekDays[0], "MMM d")} – ${format(weekDays[6], "MMM d, yyyy")}`
         : view === "day"
           ? format(cursor, "EEEE, MMMM d, yyyy")
-          : "Upcoming list";
+          : listRange === "custom"
+            ? `${new Intl.DateTimeFormat("en-CA", { timeZone: timezone, month: "short", day: "numeric" }).format(range.from)} – ${new Intl.DateTimeFormat("en-CA", { timeZone: timezone, month: "short", day: "numeric", year: "numeric" }).format(range.to)}`
+            : LIST_RANGE_OPTIONS.find((o) => o.id === listRange)?.label || "List";
 
   return (
     <div className="space-y-6">
@@ -915,6 +1034,81 @@ export function AdminCalendar({
             ))}
           </select>
         </label>
+        {view === "list" ? (
+          <>
+            <label className="grid gap-1 text-xs text-white/50">
+              Dates
+              <select
+                className="admin-input !py-2 text-sm"
+                value={listRange}
+                onChange={(e) => {
+                  const next = e.target.value as ListRange;
+                  setListRange(next);
+                  setListSort(next === "past7" || next === "past30" ? "desc" : "asc");
+                  if (next === "custom" && !listFrom) {
+                    const today = zonedParts(new Date(), timezone).dateKey;
+                    setListFrom(today);
+                    setListTo(shiftDateKey(today, 7));
+                  }
+                }}
+              >
+                {LIST_RANGE_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {listRange === "custom" ? (
+              <>
+                <label className="grid gap-1 text-xs text-white/50">
+                  From
+                  <input
+                    type="date"
+                    className="admin-input !py-2 text-sm"
+                    value={listFrom}
+                    onChange={(e) => setListFrom(e.target.value)}
+                  />
+                </label>
+                <label className="grid gap-1 text-xs text-white/50">
+                  To
+                  <input
+                    type="date"
+                    className="admin-input !py-2 text-sm"
+                    value={listTo}
+                    min={listFrom || undefined}
+                    onChange={(e) => setListTo(e.target.value)}
+                  />
+                </label>
+              </>
+            ) : null}
+            <label className="grid gap-1 text-xs text-white/50">
+              Time of day
+              <select
+                className="admin-input !py-2 text-sm"
+                value={listTimeOfDay}
+                onChange={(e) => setListTimeOfDay(e.target.value as TimeOfDay)}
+              >
+                {TIME_OF_DAY_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs text-white/50">
+              Sort
+              <select
+                className="admin-input !py-2 text-sm"
+                value={listSort}
+                onChange={(e) => setListSort(e.target.value as "asc" | "desc")}
+              >
+                <option value="asc">Earliest first</option>
+                <option value="desc">Latest first</option>
+              </select>
+            </label>
+          </>
+        ) : null}
       </div>
 
       {error ? <p className="text-sm text-red-300">{error}</p> : null}
@@ -1050,62 +1244,89 @@ export function AdminCalendar({
       ) : null}
 
       {view === "list" ? (
-        <div className="space-y-3">
-          {visibleBlocks.map((b) => (
-            <article key={b.id} className="admin-card border border-white/10 bg-white/[0.03] p-5">
-              <p className="text-[0.65rem] uppercase tracking-[0.14em] text-white/40">Blocked</p>
-              <p className="mt-1 text-sm font-semibold text-white/85">
-                {b.reason || "Unavailable"}
-              </p>
-              <p className="mt-1 text-sm text-white/55">
-                {formatWhen(b.startsAt, timezone)} → {formatTime(b.endsAt, timezone)}
-                {b.staffName ? ` · ${b.staffName}` : " · Studio-wide"}
-              </p>
-            </article>
-          ))}
-          {appointments.map((row) => (
-            <article
-              key={row.id}
-              className="admin-card cursor-pointer p-5 transition hover:bg-white/[0.06]"
-              onClick={() => openEdit(row)}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex gap-3">
-                  <span
-                    className="mt-1 h-3 w-3 shrink-0 rounded-full"
-                    style={{ background: row.staffColor || "#c6a75e" }}
-                    aria-hidden
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-white">{row.serviceTitle}</p>
-                    <p className="mt-1 text-sm text-white/70">{formatWhen(row.startsAt, timezone)}</p>
-                    <p className="mt-2 text-sm text-white/80">{row.clientName}</p>
-                    <p className="text-sm text-white/50">
-                      <a
-                        href={`mailto:${row.clientEmail}`}
-                        className="underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {row.clientEmail}
-                      </a>
-                      {row.clientPhone ? ` · ${row.clientPhone}` : ""}
-                      {row.staffName ? ` · ${row.staffName}` : ""}
+        <div className="space-y-6">
+          {!pending || listGroups.length ? (
+            <p className="text-xs uppercase tracking-[0.14em] text-white/40">
+              {listApptCount} appointment{listApptCount === 1 ? "" : "s"}
+              {appointments.length >= 500 ? " · showing first 500, narrow the dates to see more" : ""}
+            </p>
+          ) : null}
+          {listGroups.map((group) => (
+            <section key={group.key} className="space-y-3">
+              <h3 className="flex items-baseline justify-between gap-3 border-b border-white/10 pb-2 text-sm font-semibold text-[#f5f1eb]">
+                <span>{group.label}</span>
+                <span className="text-xs font-normal text-white/40">
+                  {group.apptCount} appointment{group.apptCount === 1 ? "" : "s"}
+                </span>
+              </h3>
+              {group.items.map((item) =>
+                item.kind === "block" ? (
+                  <article
+                    key={`block-${item.block.id}`}
+                    className="admin-card border border-white/10 bg-white/[0.03] p-5"
+                  >
+                    <p className="text-[0.65rem] uppercase tracking-[0.14em] text-white/40">Blocked</p>
+                    <p className="mt-1 text-sm font-semibold text-white/85">
+                      {item.block.reason || "Unavailable"}
                     </p>
-                    {row.notes ? <p className="mt-2 text-sm text-white/45">{row.notes}</p> : null}
-                  </div>
-                </div>
-                <div className="text-right text-xs uppercase tracking-[0.12em] text-white/45">
-                  <p>{row.status.replace("_", " ")}</p>
-                  <p className="mt-1 normal-case tracking-normal text-white/70">
-                    Charged {row.amountLabel}
-                    <span className="text-white/40"> · service {row.priceLabel}</span>
-                  </p>
-                </div>
-              </div>
-            </article>
+                    <p className="mt-1 text-sm text-white/55">
+                      {formatTime(item.block.startsAt, timezone)} → {formatTime(item.block.endsAt, timezone)}
+                      {item.block.staffName ? ` · ${item.block.staffName}` : " · Studio-wide"}
+                    </p>
+                  </article>
+                ) : (
+                  <article
+                    key={item.appt.id}
+                    className="admin-card cursor-pointer p-5 transition hover:bg-white/[0.06]"
+                    onClick={() => openEdit(item.appt)}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex gap-4">
+                        <div className="w-20 shrink-0">
+                          <p className="text-base font-semibold text-white">
+                            {formatTime(item.appt.startsAt, timezone)}
+                          </p>
+                          <p className="text-xs text-white/40">to {formatTime(item.appt.endsAt, timezone)}</p>
+                        </div>
+                        <span
+                          className="mt-1.5 h-3 w-3 shrink-0 rounded-full"
+                          style={{ background: item.appt.staffColor || "#c6a75e" }}
+                          aria-hidden
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-white">{item.appt.serviceTitle}</p>
+                          <p className="mt-1 text-sm text-white/80">{item.appt.clientName}</p>
+                          <p className="text-sm text-white/50">
+                            <a
+                              href={`mailto:${item.appt.clientEmail}`}
+                              className="underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {item.appt.clientEmail}
+                            </a>
+                            {item.appt.clientPhone ? ` · ${item.appt.clientPhone}` : ""}
+                            {item.appt.staffName ? ` · ${item.appt.staffName}` : ""}
+                          </p>
+                          {item.appt.notes ? (
+                            <p className="mt-2 text-sm text-white/45">{item.appt.notes}</p>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="text-right text-xs uppercase tracking-[0.12em] text-white/45">
+                        <p>{item.appt.status.replace("_", " ")}</p>
+                        <p className="mt-1 normal-case tracking-normal text-white/70">
+                          Charged {item.appt.amountLabel}
+                          <span className="text-white/40"> · service {item.appt.priceLabel}</span>
+                        </p>
+                      </div>
+                    </div>
+                  </article>
+                ),
+              )}
+            </section>
           ))}
-          {!appointments.length && !visibleBlocks.length && !pending ? (
-            <p className="text-sm text-white/50">No appointments in this view.</p>
+          {!listGroups.length && !pending ? (
+            <p className="text-sm text-white/50">No appointments match these filters.</p>
           ) : null}
         </div>
       ) : null}

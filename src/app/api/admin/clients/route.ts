@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireAdminApi } from "@/lib/auth/admin-api";
-import { upsertClient } from "@/lib/booking/clients";
+import { findClientByPhone, phoneKey, upsertClient } from "@/lib/booking/clients";
 import { formatCad } from "@/lib/booking/money";
 
 export async function GET(req: Request) {
@@ -136,6 +136,16 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
+  const phoneMatch = await findClientByPhone(gate.db, parsed.data.phone);
+  if (phoneMatch) {
+    return NextResponse.json(
+      {
+        error: `A client with that phone number already exists (${phoneMatch.name} · ${phoneMatch.email})`,
+        id: phoneMatch.id,
+      },
+      { status: 409 },
+    );
+  }
 
   const client = await upsertClient(gate.db, {
     email,
@@ -174,7 +184,19 @@ export async function PATCH(req: Request) {
 
   const data: Record<string, unknown> = {};
   if (parsed.data.name !== undefined) data.name = parsed.data.name.trim();
-  if (parsed.data.phone !== undefined) data.phone = parsed.data.phone?.trim() || null;
+  if (parsed.data.phone !== undefined) {
+    const phone = parsed.data.phone?.trim() || null;
+    if (phone && phoneKey(phone) !== phoneKey(existing.phone)) {
+      const clash = await findClientByPhone(gate.db, phone, existing.id);
+      if (clash) {
+        return NextResponse.json(
+          { error: `Phone number already used by ${clash.name} · ${clash.email}` },
+          { status: 409 },
+        );
+      }
+    }
+    data.phone = phone;
+  }
   if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
   if (parsed.data.banned !== undefined) data.banned = parsed.data.banned;
   if (parsed.data.email !== undefined) {
