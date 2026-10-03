@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { zonedInputToUtc } from "@/lib/booking/money";
 
 export type BlockedTimeItem = {
   id: string;
@@ -17,11 +18,14 @@ export function BlockedTimesPanel({
   canWrite = true,
   canManageAll = false,
   staff = [],
+  timezone = "America/Toronto",
   onChanged,
 }: {
   canWrite?: boolean;
   canManageAll?: boolean;
   staff?: StaffOption[];
+  /** Studio timezone — the form's times are entered and shown in it. */
+  timezone?: string;
   onChanged?: (blocks: BlockedTimeItem[]) => void;
 }) {
   const [blocks, setBlocks] = useState<BlockedTimeItem[]>([]);
@@ -81,8 +85,8 @@ export function BlockedTimesPanel({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        startsAt: new Date(startsAt).toISOString(),
-        endsAt: new Date(endsAt).toISOString(),
+        startsAt: zonedInputToUtc(startsAt, timezone).toISOString(),
+        endsAt: zonedInputToUtc(endsAt, timezone).toISOString(),
         reason,
         staffId: canManageAll && staffId ? staffId : null,
       }),
@@ -136,7 +140,8 @@ export function BlockedTimesPanel({
             className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 py-3 text-sm"
           >
             <span className="text-white/75">
-              {new Date(b.startsAt).toLocaleString("en-CA")} → {new Date(b.endsAt).toLocaleString("en-CA")}
+              {new Date(b.startsAt).toLocaleString("en-CA", { timeZone: timezone })} →{" "}
+              {new Date(b.endsAt).toLocaleString("en-CA", { timeZone: timezone })}
               {b.staffName ? ` · ${b.staffName}` : " · Studio"}
               {b.reason ? ` · ${b.reason}` : ""}
             </span>

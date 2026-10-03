@@ -285,7 +285,12 @@ export function AvailabilityClient({
       ) : null}
 
       {tab === "blocks" ? (
-        <BlockedTimesPanel canWrite={canWrite} canManageAll={canManageAll} staff={staff} />
+        <BlockedTimesPanel
+          canWrite={canWrite}
+          canManageAll={canManageAll}
+          staff={staff}
+          timezone={timezone}
+        />
       ) : null}
 
       {!loading && tab === "rules" ? (

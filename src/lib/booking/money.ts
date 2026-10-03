@@ -113,6 +113,14 @@ export function zonedLocalToUtc(
   return new Date(guess.getTime() + (desiredMs - asUtcMs));
 }
 
+/** Parse a `datetime-local` value ("YYYY-MM-DDTHH:mm") as wall-clock time in `timeZone`. */
+export function zonedInputToUtc(value: string, timeZone: string) {
+  const [datePart, timePart = "00:00"] = value.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [h, min] = timePart.split(":").map(Number);
+  return zonedLocalToUtc(y, m, d, h || 0, min || 0, timeZone);
+}
+
 export function parseHm(hm: string) {
   const [h, m] = hm.split(":").map(Number);
   return { hour: h || 0, minute: m || 0 };

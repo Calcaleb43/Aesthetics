@@ -4,11 +4,9 @@ import {
   addDays,
   addMonths,
   addWeeks,
-  endOfDay,
   endOfMonth,
   endOfWeek,
   format,
-  isSameDay,
   isSameMonth,
   startOfDay,
   startOfMonth,
@@ -25,6 +23,7 @@ import {
   type WeeklyHours,
   formatCad,
   estimateBalanceDueCents,
+  zonedInputToUtc,
   zonedLocalToUtc,
   zonedParts,
 } from "@/lib/booking/money";
@@ -179,15 +178,43 @@ const STATUS_ACTIONS: { status: string; label: string }[] = [
   { status: "confirmed", label: "Mark confirmed" },
 ];
 
-function minutesFromHourStart(date: Date, hourStart: number) {
-  return date.getHours() * 60 + date.getMinutes() - hourStart * 60;
+/** Calendar cells are browser-local midnights standing in for studio dates; this is their studio date key. */
+function calendarKey(day: Date) {
+  return format(day, "yyyy-MM-dd");
 }
 
-function eventStyle(startsAt: string, endsAt: string, hourStart: number, dayMinutes: number) {
-  const start = new Date(startsAt);
-  const end = new Date(endsAt);
-  const topMin = Math.max(0, minutesFromHourStart(start, hourStart));
-  const endMin = Math.min(dayMinutes, minutesFromHourStart(end, hourStart));
+/** UTC instants for studio midnight at the start and end of a calendar day. */
+function studioDayBounds(day: Date, timezone: string) {
+  const next = addDays(day, 1);
+  return {
+    start: zonedLocalToUtc(day.getFullYear(), day.getMonth() + 1, day.getDate(), 0, 0, timezone),
+    end: zonedLocalToUtc(next.getFullYear(), next.getMonth() + 1, next.getDate(), 0, 0, timezone),
+  };
+}
+
+function studioAt(day: Date, hour: number, minute: number, timezone: string) {
+  return zonedLocalToUtc(day.getFullYear(), day.getMonth() + 1, day.getDate(), hour, minute, timezone);
+}
+
+/** Minutes past studio midnight on `dayKey`, clamped to that day. */
+function studioMinutesOnDay(iso: string, dayKey: string, timezone: string) {
+  const p = zonedParts(new Date(iso), timezone);
+  if (p.dateKey < dayKey) return 0;
+  if (p.dateKey > dayKey) return 24 * 60;
+  return p.hour * 60 + p.minute;
+}
+
+function eventStyle(
+  startsAt: string,
+  endsAt: string,
+  dayKey: string,
+  timezone: string,
+  hourStart: number,
+  dayMinutes: number,
+) {
+  const offset = hourStart * 60;
+  const topMin = Math.max(0, studioMinutesOnDay(startsAt, dayKey, timezone) - offset);
+  const endMin = Math.min(dayMinutes, studioMinutesOnDay(endsAt, dayKey, timezone) - offset);
   const heightMin = Math.max(20, endMin - topMin);
   return {
     top: `${(topMin / dayMinutes) * 100}%`,
@@ -195,11 +222,12 @@ function eventStyle(startsAt: string, endsAt: string, hourStart: number, dayMinu
   };
 }
 
-function toLocalInputValue(date: Date) {
+/** `datetime-local` value showing `date` as studio wall-clock time. */
+function toStudioInputValue(date: Date, timezone: string) {
+  const p = zonedParts(date, timezone);
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${p.dateKey}T${pad(p.hour)}:${pad(p.minute)}`;
 }
-
 function formatWhen(iso: string, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -307,7 +335,10 @@ export function AdminCalendar({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [view, setView] = useState<ViewMode>("week");
-  const [cursor, setCursor] = useState(() => new Date());
+  const [cursor, setCursor] = useState(() => {
+    const today = zonedParts(new Date(), timezone);
+    return new Date(today.year, today.month - 1, today.day);
+  });
   const [listRange, setListRange] = useState<ListRange>("upcoming");
   const [listFrom, setListFrom] = useState("");
   const [listTo, setListTo] = useState("");
@@ -351,18 +382,19 @@ export function AdminCalendar({
       const monthStart = startOfMonth(cursor);
       const monthEnd = endOfMonth(cursor);
       return {
-        from: startOfWeek(monthStart, { weekStartsOn }),
-        to: endOfWeek(monthEnd, { weekStartsOn }),
+        from: studioDayBounds(startOfWeek(monthStart, { weekStartsOn }), timezone).start,
+        to: studioDayBounds(endOfWeek(monthEnd, { weekStartsOn }), timezone).end,
       };
     }
     if (view === "week") {
       return {
-        from: startOfWeek(cursor, { weekStartsOn }),
-        to: endOfWeek(cursor, { weekStartsOn }),
+        from: studioDayBounds(startOfWeek(cursor, { weekStartsOn }), timezone).start,
+        to: studioDayBounds(endOfWeek(cursor, { weekStartsOn }), timezone).end,
       };
     }
     if (view === "day") {
-      return { from: startOfDay(cursor), to: endOfDay(cursor) };
+      const bounds = studioDayBounds(startOfDay(cursor), timezone);
+      return { from: bounds.start, to: bounds.end };
     }
     return listRangeBounds(listRange, listFrom, listTo, timezone);
   }, [cursor, view, weekStartsOn, listRange, listFrom, listTo, timezone]);
@@ -442,7 +474,7 @@ export function AdminCalendar({
       const data = await res.json().catch(() => ({}));
       if (cancelled || !res.ok || !data.client) return;
       const c = data.client;
-      const starts = toLocalInputValue(new Date());
+      const starts = toStudioInputValue(new Date(), timezone);
       const selection = defaultSelection(initialServices);
       const assigned = staff.filter((s) =>
         selection.serviceIds.length
@@ -601,7 +633,7 @@ export function AdminCalendar({
 
   function openCreate(at: Date) {
     if (!canWrite) return;
-    const starts = toLocalInputValue(at);
+    const starts = toStudioInputValue(at, timezone);
     const selection = defaultSelection(initialServices);
     const assigned = staffForServices(selection.serviceIds);
     const hasAssignees = staff.some((s) =>
@@ -652,7 +684,7 @@ export function AdminCalendar({
     for (const item of anchor.items || []) {
       if (item.variantIds?.length) variantIdsByService[item.serviceId] = [...item.variantIds];
     }
-    const starts = toLocalInputValue(lastEnd);
+    const starts = toStudioInputValue(lastEnd, timezone);
     setCreateStartsAt(starts);
     setForm({
       ...emptyFormFields(),
@@ -696,7 +728,7 @@ export function AdminCalendar({
       clientEmail: appt.clientEmail,
       clientPhone: appt.clientPhone || "",
       notes: appt.notes || "",
-      startsAt: toLocalInputValue(new Date(appt.startsAt)),
+      startsAt: toStudioInputValue(new Date(appt.startsAt), timezone),
       paymentMode: appt.paymentMode || "deposit",
       priceDollars: moneyInputFromCents(appt.priceCents),
       depositDollars: moneyInputFromCents(appt.depositCents),
@@ -728,7 +760,7 @@ export function AdminCalendar({
       items: buildBookingItems(form.serviceIds, form.variantIdsByService, initialServices),
       staffId: form.staffId || null,
       clientId: form.clientId || null,
-      startsAt: new Date(form.startsAt || createStartsAt).toISOString(),
+      startsAt: zonedInputToUtc(form.startsAt || createStartsAt, timezone).toISOString(),
       clientName: form.clientName,
       clientEmail: form.clientEmail,
       clientPhone: form.clientPhone || null,
@@ -743,7 +775,9 @@ export function AdminCalendar({
         count: recurrence.endMode === "count" ? recurrence.count : undefined,
         until:
           recurrence.endMode === "until" && recurrence.until
-            ? new Date(`${recurrence.until}T23:59:59`).toISOString()
+            ? new Date(
+                zonedInputToUtc(`${recurrence.until}T23:59`, timezone).getTime() + 59_999,
+              ).toISOString()
             : null,
       };
     }
@@ -878,7 +912,7 @@ export function AdminCalendar({
       {
         notes: form.notes,
         staffId: canManageAll ? form.staffId || null : undefined,
-        startsAt: form.startsAt ? new Date(form.startsAt).toISOString() : undefined,
+        startsAt: form.startsAt ? zonedInputToUtc(form.startsAt, timezone).toISOString() : undefined,
         clientId: form.clientId || null,
         clientName: form.clientName,
         clientEmail: form.clientEmail,
@@ -926,12 +960,14 @@ export function AdminCalendar({
   ]);
 
   function appointmentsForDay(day: Date) {
-    return appointments.filter((a) => isSameDay(new Date(a.startsAt), day));
+    const key = calendarKey(day);
+    return appointments.filter((a) => zonedParts(new Date(a.startsAt), timezone).dateKey === key);
   }
 
   function blocksForDay(day: Date) {
-    const dayStart = startOfDay(day).getTime();
-    const dayEnd = endOfDay(day).getTime();
+    const bounds = studioDayBounds(day, timezone);
+    const dayStart = bounds.start.getTime();
+    const dayEnd = bounds.end.getTime();
     return blocks.filter((b) => {
       if (staffFilter && b.staffId && b.staffId !== staffFilter) return false;
       const start = new Date(b.startsAt).getTime();
@@ -1204,7 +1240,7 @@ export function AdminCalendar({
               const dayAppts = appointmentsForDay(day);
               const dayBlocks = blocksForDay(day);
               const inMonth = isSameMonth(day, cursor);
-              const isToday = isSameDay(day, new Date());
+              const isToday = calendarKey(day) === zonedParts(new Date(), timezone).dateKey;
               const apptSlots = Math.max(1, 3 - Math.min(2, dayBlocks.length));
               return (
                 <div
@@ -1419,6 +1455,7 @@ export function AdminCalendar({
         canWrite={canWrite}
         canManageAll={canManageAll}
         staff={staff}
+        timezone={timezone}
         onChanged={(next) => setBlocks(next)}
       />
       <DayOverridesPanel canWrite={canWrite} canManageAll={canManageAll} staff={staff} />
@@ -1574,7 +1611,7 @@ export function AdminCalendar({
                     <button
                       type="button"
                       onClick={() => {
-                        const v = toLocalInputValue(new Date(groupAnchor.startsAt));
+                        const v = toStudioInputValue(new Date(groupAnchor.startsAt), timezone);
                         setForm((f) => ({ ...f, startsAt: v }));
                         setCreateStartsAt(v);
                       }}
@@ -1591,7 +1628,7 @@ export function AdminCalendar({
                             (latest, m) => (new Date(m.endsAt) > latest ? new Date(m.endsAt) : latest),
                             new Date(groupAnchor.endsAt),
                           );
-                        const v = toLocalInputValue(lastEnd);
+                        const v = toStudioInputValue(lastEnd, timezone);
                         setForm((f) => ({ ...f, startsAt: v }));
                         setCreateStartsAt(v);
                       }}
@@ -2053,9 +2090,10 @@ export function AdminCalendar({
   );
 }
 
-function clipBlockToDay(startsAt: string, endsAt: string, day: Date) {
-  const dayStart = startOfDay(day).getTime();
-  const dayEnd = endOfDay(day).getTime();
+function clipBlockToDay(startsAt: string, endsAt: string, day: Date, timezone: string) {
+  const bounds = studioDayBounds(day, timezone);
+  const dayStart = bounds.start.getTime();
+  const dayEnd = bounds.end.getTime() - 1;
   const start = Math.max(new Date(startsAt).getTime(), dayStart);
   const end = Math.min(new Date(endsAt).getTime(), dayEnd);
   return {
@@ -2122,9 +2160,13 @@ function TimelineGrid({
         </div>
 
         {days.map((day) => {
-          const dayAppts = appointments.filter((a) => isSameDay(new Date(a.startsAt), day));
-          const dayStart = startOfDay(day).getTime();
-          const dayEnd = endOfDay(day).getTime();
+          const dayKey = calendarKey(day);
+          const dayAppts = appointments.filter(
+            (a) => zonedParts(new Date(a.startsAt), timezone).dateKey === dayKey,
+          );
+          const bounds = studioDayBounds(day, timezone);
+          const dayStart = bounds.start.getTime();
+          const dayEnd = bounds.end.getTime();
           const dayBlocks = blocks.filter((b) => {
             const start = new Date(b.startsAt).getTime();
             const end = new Date(b.endsAt).getTime();
@@ -2158,17 +2200,20 @@ function TimelineGrid({
                     top: `${((h - hourStart) / span) * 100}%`,
                     height: `${(1 / span) * 100}%`,
                   }}
-                  onClick={() => {
-                    const at = new Date(day);
-                    at.setHours(h, 0, 0, 0);
-                    onSlotClick(at);
-                  }}
+                  onClick={() => onSlotClick(studioAt(day, h, 0, timezone))}
                   aria-label={`Create at ${h}:00`}
                 />
               ))}
               {dayBlocks.map((b) => {
-                const clipped = clipBlockToDay(b.startsAt, b.endsAt, day);
-                const style = eventStyle(clipped.startsAt, clipped.endsAt, hourStart, dayMinutes);
+                const clipped = clipBlockToDay(b.startsAt, b.endsAt, day, timezone);
+                const style = eventStyle(
+                  clipped.startsAt,
+                  clipped.endsAt,
+                  dayKey,
+                  timezone,
+                  hourStart,
+                  dayMinutes,
+                );
                 return (
                   <div
                     key={b.id}
@@ -2184,7 +2229,7 @@ function TimelineGrid({
                 );
               })}
               {dayAppts.map((a) => {
-                const style = eventStyle(a.startsAt, a.endsAt, hourStart, dayMinutes);
+                const style = eventStyle(a.startsAt, a.endsAt, dayKey, timezone, hourStart, dayMinutes);
                 const unpaid = a.status === "pending_payment";
                 return (
                   <button
