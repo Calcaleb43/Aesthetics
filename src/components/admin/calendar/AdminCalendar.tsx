@@ -69,6 +69,9 @@ type Appointment = {
   endsAt: string;
   clientId: string | null;
   seriesId: string | null;
+  groupId?: string | null;
+  /** Active (not cancelled) appointments in this party, including this one. */
+  groupSize?: number;
   clientName: string;
   clientEmail: string;
   clientPhone: string | null;
@@ -325,6 +328,10 @@ export function AdminCalendar({
 
   const [drawer, setDrawer] = useState<"create" | "edit" | null>(null);
   const [selected, setSelected] = useState<Appointment | null>(null);
+  /** When creating: the appointment whose party the new person joins. */
+  const [groupAnchor, setGroupAnchor] = useState<Appointment | null>(null);
+  const [groupMembers, setGroupMembers] = useState<Appointment[]>([]);
+  const [loadingGroup, setLoadingGroup] = useState(false);
   const [createStartsAt, setCreateStartsAt] = useState("");
   const [form, setForm] = useState({
     ...emptyFormFields(),
@@ -613,11 +620,61 @@ export function AdminCalendar({
     setClientSuggestions([]);
     setRecurrence({ frequency: "none", count: 4, until: "", endMode: "count" });
     setSelected(null);
+    setGroupAnchor(null);
+    setGroupMembers([]);
+    setDrawer("create");
+  }
+
+  async function loadGroupMembers(groupId: string) {
+    setLoadingGroup(true);
+    try {
+      const params = new URLSearchParams({ groupId, status: "all" });
+      const res = await fetch(`/api/admin/appointments?${params}`);
+      const data = await res.json().catch(() => ({}));
+      const members: Appointment[] = res.ok ? data.appointments || [] : [];
+      setGroupMembers(members);
+      return members;
+    } finally {
+      setLoadingGroup(false);
+    }
+  }
+
+  /** Open the create form pre-filled to add another person to `anchor`'s booking. */
+  function openAddToGroup(anchor: Appointment) {
+    if (!canWrite) return;
+    const party = groupMembers.length ? groupMembers : [anchor];
+    const lastEnd = party.filter((m) => m.status !== "cancelled").reduce(
+      (latest, m) => (new Date(m.endsAt) > latest ? new Date(m.endsAt) : latest),
+      new Date(anchor.endsAt),
+    );
+    const serviceIds = anchor.serviceIds?.length ? anchor.serviceIds : anchor.serviceId ? [anchor.serviceId] : [];
+    const variantIdsByService: Record<string, string[]> = {};
+    for (const item of anchor.items || []) {
+      if (item.variantIds?.length) variantIdsByService[item.serviceId] = [...item.variantIds];
+    }
+    const starts = toLocalInputValue(lastEnd);
+    setCreateStartsAt(starts);
+    setForm({
+      ...emptyFormFields(),
+      serviceIds,
+      variantIdsByService,
+      staffId: anchor.staffId || "",
+      startsAt: starts,
+    });
+    setClientQuery("");
+    setClientSuggestions([]);
+    setRecurrence({ frequency: "none", count: 4, until: "", endMode: "count" });
+    setGroupAnchor(anchor);
+    setGroupMembers(party);
+    setSelected(null);
     setDrawer("create");
   }
 
   function openEdit(appt: Appointment) {
     setSelected(appt);
+    setGroupAnchor(null);
+    setGroupMembers([]);
+    if (appt.groupId) void loadGroupMembers(appt.groupId);
     const serviceIds = appt.serviceIds?.length
       ? appt.serviceIds
       : appt.serviceId
@@ -653,6 +710,8 @@ export function AdminCalendar({
   function closeDrawer() {
     setDrawer(null);
     setSelected(null);
+    setGroupAnchor(null);
+    setGroupMembers([]);
     setClientSuggestions([]);
   }
 
@@ -676,7 +735,9 @@ export function AdminCalendar({
       notes: form.notes || "",
       status: "confirmed",
     };
-    if (recurrence.frequency !== "none") {
+    if (groupAnchor) {
+      body.groupWithId = groupAnchor.id;
+    } else if (recurrence.frequency !== "none") {
       body.recurrence = {
         frequency: recurrence.frequency,
         count: recurrence.endMode === "count" ? recurrence.count : undefined,
@@ -702,8 +763,23 @@ export function AdminCalendar({
         `Created ${data.created}; skipped ${data.skipped.length} conflicting time(s).`,
       );
     }
+    if (groupAnchor && data.groupId) {
+      // Return to the party so the next person can be added straight away.
+      const anchor = { ...groupAnchor, groupId: data.groupId as string };
+      load();
+      openEdit(anchor);
+      return;
+    }
     closeDrawer();
     load();
+  }
+
+  async function removeFromGroup() {
+    if (!selected?.groupId) return;
+    if (!window.confirm(`Remove ${selected.clientName} from this group booking? Their appointment stays booked.`)) {
+      return;
+    }
+    await patchAppointment({ groupId: null }, { skipAnnounce: true });
   }
 
   async function patchAppointment(
@@ -1176,6 +1252,7 @@ export function AdminCalendar({
                         >
                           {formatTime(a.startsAt, timezone)} {unpaid ? "(unpaid) " : ""}
                           {a.clientName}
+                          {(a.groupSize || 1) > 1 ? ` · group of ${a.groupSize}` : ""}
                         </button>
                       );
                     })}
@@ -1295,7 +1372,14 @@ export function AdminCalendar({
                         />
                         <div>
                           <p className="text-sm font-semibold text-white">{item.appt.serviceTitle}</p>
-                          <p className="mt-1 text-sm text-white/80">{item.appt.clientName}</p>
+                          <p className="mt-1 text-sm text-white/80">
+                            {item.appt.clientName}
+                            {(item.appt.groupSize || 1) > 1 ? (
+                              <span className="ml-2 rounded-full border border-[#c6a75e]/50 px-2 py-0.5 text-[0.6rem] uppercase tracking-[0.12em] text-[#c6a75e]">
+                                Group of {item.appt.groupSize}
+                              </span>
+                            ) : null}
+                          </p>
                           <p className="text-sm text-white/50">
                             <a
                               href={`mailto:${item.appt.clientEmail}`}
@@ -1347,7 +1431,11 @@ export function AdminCalendar({
           >
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
               <h2 className="text-lg font-semibold text-white">
-                {drawer === "create" ? "New appointment" : "Edit appointment"}
+                {drawer === "create"
+                  ? groupAnchor
+                    ? "Add person to booking"
+                    : "New appointment"
+                  : "Edit appointment"}
               </h2>
               <button
                 type="button"
@@ -1384,6 +1472,137 @@ export function AdminCalendar({
                   <a href={`mailto:${selected.clientEmail}`} className="inline-block text-[#c6a75e] underline">
                     Email {selected.clientName}
                   </a>
+                </div>
+              ) : null}
+
+              {drawer === "edit" && selected ? (
+                <div className="mb-4 rounded-lg border border-white/10 p-3 text-sm">
+                  {selected.groupId ? (
+                    <>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[0.65rem] uppercase tracking-[0.12em] text-[#c6a75e]">
+                          Group booking · {groupMembers.length || selected.groupSize || 1} people
+                        </p>
+                        {loadingGroup ? <span className="text-xs text-white/40">Loading…</span> : null}
+                      </div>
+                      <ul className="space-y-1.5">
+                        {groupMembers.map((m) => {
+                          const isCurrent = m.id === selected.id;
+                          return (
+                            <li key={m.id}>
+                              <button
+                                type="button"
+                                disabled={isCurrent}
+                                onClick={() => openEdit(m)}
+                                className={`w-full rounded-md border px-2.5 py-1.5 text-left ${
+                                  isCurrent
+                                    ? "border-[#c6a75e]/50 bg-[#c6a75e]/10"
+                                    : "border-white/10 hover:border-white/30"
+                                }`}
+                              >
+                                <span className="flex items-center justify-between gap-2">
+                                  <span className="font-medium text-white">
+                                    {m.clientName}
+                                    {isCurrent ? <span className="text-white/40"> (viewing)</span> : null}
+                                  </span>
+                                  <span className="text-xs text-white/50">{m.priceLabel}</span>
+                                </span>
+                                <span className="block text-xs text-white/50">
+                                  {formatWhen(m.startsAt, timezone)} · {m.serviceLabel || m.serviceTitle}
+                                  {m.staffName ? ` · ${m.staffName}` : ""}
+                                  {m.status !== "confirmed" ? ` · ${m.status.replace("_", " ")}` : ""}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      {groupMembers.length > 1 ? (
+                        <p className="mt-2 text-xs text-white/50">
+                          Group total{" "}
+                          {formatCad(
+                            groupMembers
+                              .filter((m) => m.status !== "cancelled")
+                              .reduce((sum, m) => sum + (m.priceCents || 0), 0),
+                          )}
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p className="mb-2 text-xs text-white/50">
+                      Booking for more than one person? Add each extra guest with their own services and time.
+                    </p>
+                  )}
+                  {canWrite ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selected.status !== "cancelled" && selected.status !== "expired" ? (
+                        <button
+                          type="button"
+                          onClick={() => openAddToGroup(selected)}
+                          className="rounded-full border border-[#c6a75e]/60 px-3 py-1.5 text-xs uppercase tracking-[0.12em] text-[#c6a75e] hover:bg-[#c6a75e]/10"
+                        >
+                          + Add person to this booking
+                        </button>
+                      ) : null}
+                      {selected.groupId ? (
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={removeFromGroup}
+                          className="rounded-full border border-white/15 px-3 py-1.5 text-xs uppercase tracking-[0.12em] text-white/60 hover:text-white"
+                        >
+                          Remove from group
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {drawer === "create" && groupAnchor ? (
+                <div className="mb-4 rounded-lg border border-[#c6a75e]/40 bg-[#c6a75e]/5 p-3 text-sm text-white/70">
+                  <p>
+                    Joining <span className="font-medium text-white">{groupAnchor.clientName}</span>&apos;s booking
+                    · {formatWhen(groupAnchor.startsAt, timezone)}
+                  </p>
+                  {groupMembers.length > 1 ? (
+                    <p className="mt-1 text-xs text-white/50">
+                      Already in this group: {groupMembers.map((m) => m.clientName).join(", ")}
+                    </p>
+                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const v = toLocalInputValue(new Date(groupAnchor.startsAt));
+                        setForm((f) => ({ ...f, startsAt: v }));
+                        setCreateStartsAt(v);
+                      }}
+                      className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/70 hover:text-white"
+                    >
+                      Same time as {groupAnchor.clientName.split(" ")[0]}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const lastEnd = (groupMembers.length ? groupMembers : [groupAnchor])
+                          .filter((m) => m.status !== "cancelled")
+                          .reduce(
+                            (latest, m) => (new Date(m.endsAt) > latest ? new Date(m.endsAt) : latest),
+                            new Date(groupAnchor.endsAt),
+                          );
+                        const v = toLocalInputValue(lastEnd);
+                        setForm((f) => ({ ...f, startsAt: v }));
+                        setCreateStartsAt(v);
+                      }}
+                      className="rounded-full border border-white/15 px-3 py-1 text-xs text-white/70 hover:text-white"
+                    >
+                      Right after the last person
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-white/40">
+                    Same time needs a different staff member — one person can&apos;t be double-booked.
+                  </p>
                 </div>
               ) : null}
 
@@ -1658,7 +1877,7 @@ export function AdminCalendar({
                     </fieldset>
                   ) : null}
 
-                  {drawer === "create" ? (
+                  {drawer === "create" && !groupAnchor ? (
                     <details className="rounded-lg border border-white/10 p-3">
                       <summary className="cursor-pointer text-sm text-white/70">
                         Recurring series
@@ -1988,7 +2207,10 @@ function TimelineGrid({
                       {formatTime(a.startsAt, timezone)}
                       {unpaid ? " · unpaid" : ""}
                     </span>
-                    <span className="block truncate">{a.clientName}</span>
+                    <span className="block truncate">
+                      {a.clientName}
+                      {(a.groupSize || 1) > 1 ? ` · group of ${a.groupSize}` : ""}
+                    </span>
                     <span className="block truncate opacity-80">{a.serviceTitle}</span>
                   </button>
                 );

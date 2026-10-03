@@ -285,6 +285,8 @@ model Appointment {
   clientId               String?              @map("client_id") @db.Uuid
   client                 Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
   seriesId               String?              @map("series_id") @db.Uuid
+  /// Links appointments booked together as one party (2+ people sharing one schedule).
+  groupId                String?              @map("group_id") @db.Uuid
   externalId             String?              @unique @map("external_id") @db.VarChar(64)
   serviceLabel           String?              @map("service_label") @db.VarChar(255)
   startsAt               DateTime             @map("starts_at") @db.Timestamptz(6)
@@ -319,6 +321,7 @@ model Appointment {
   @@index([staffId, startsAt])
   @@index([clientId, startsAt])
   @@index([seriesId])
+  @@index([groupId])
   @@index([clientEmail])
   @@index([categoryId])
   @@index([clientPackageId])

@@ -63,8 +63,10 @@ export async function GET(req: Request) {
   const staffId = url.searchParams.get("staffId");
   const serviceId = url.searchParams.get("serviceId");
   const order = url.searchParams.get("order") === "desc" ? "desc" : "asc";
+  const groupIdParam = url.searchParams.get("groupId");
 
   const where: Record<string, unknown> = {};
+  if (groupIdParam) where.groupId = groupIdParam;
   if (status && status !== "all") {
     where.status = status;
   } else {
@@ -81,7 +83,17 @@ export async function GET(req: Request) {
     where.OR = [{ serviceId }, { lines: { some: { serviceId } } }];
   }
 
-  if (gate.session.role === "staff") {
+  const staffInGroup =
+    gate.session.role === "staff" && groupIdParam
+      ? Boolean(
+          await gate.db.appointment.findFirst({
+            where: { groupId: groupIdParam, staffId: gate.session.sub },
+            select: { id: true },
+          }),
+        )
+      : false;
+
+  if (gate.session.role === "staff" && !staffInGroup) {
     where.staffId = gate.session.sub;
   } else if (staffId) {
     where.staffId = staffId;
@@ -122,6 +134,16 @@ export async function GET(req: Request) {
       select: { adminId: true, serviceId: true },
     }),
   ]);
+
+  const groupIds = [...new Set(rows.map((r) => r.groupId).filter((id): id is string => !!id))];
+  const groupCounts = groupIds.length
+    ? await gate.db.appointment.groupBy({
+        by: ["groupId"],
+        where: { groupId: { in: groupIds }, status: { notIn: ["expired", "cancelled"] } },
+        _count: { _all: true },
+      })
+    : [];
+  const groupSizeById = new Map(groupCounts.map((g) => [g.groupId as string, g._count._all]));
 
   const serviceIdsByStaff = new Map<string, string[]>();
   for (const row of staffServices) {
@@ -166,6 +188,8 @@ export async function GET(req: Request) {
         endsAt: row.endsAt.toISOString(),
         clientId: row.clientId,
         seriesId: row.seriesId,
+        groupId: row.groupId,
+        groupSize: row.groupId ? groupSizeById.get(row.groupId) || 1 : 1,
         clientName: row.clientName,
         clientEmail: row.clientEmail,
         clientPhone: row.clientPhone,
@@ -230,6 +254,8 @@ const patchSchema = z.object({
   serviceIds: z.array(z.string().uuid()).min(1).optional(),
   items: z.array(bookingItemSchema).min(1).optional(),
   clientId: z.string().uuid().nullable().optional(),
+  /** Only `null` is accepted: removes this appointment from its group. */
+  groupId: z.null().optional(),
   /** When true, skip automatic cancel/confirm/reschedule emails (UI will prompt instead). */
   skipAnnounce: z.boolean().optional(),
   paymentMode: z.enum(["deposit", "full", "none"]).optional(),
@@ -261,6 +287,8 @@ export async function PATCH(req: Request) {
   }
 
   const data: Record<string, unknown> = {};
+  const leavingGroupId = parsed.data.groupId === null ? existing.groupId : null;
+  if (parsed.data.groupId === null) data.groupId = null;
   if (parsed.data.status !== undefined) data.status = parsed.data.status;
   if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
   if (parsed.data.clientName !== undefined) data.clientName = parsed.data.clientName;
@@ -432,6 +460,16 @@ export async function PATCH(req: Request) {
     },
   });
 
+  if (leavingGroupId) {
+    const remaining = await gate.db.appointment.count({ where: { groupId: leavingGroupId } });
+    if (remaining <= 1) {
+      await gate.db.appointment.updateMany({
+        where: { groupId: leavingGroupId },
+        data: { groupId: null },
+      });
+    }
+  }
+
   const settings = await gate.db.siteSettings.findUnique({ where: { id: 1 }, select: { timezone: true } });
   const tz = settings?.timezone || "America/Toronto";
   const formatWhen = (d: Date) =>
@@ -550,6 +588,8 @@ const createSchema = z
     clientPhone: z.string().max(64).nullable().optional(),
     notes: z.string().max(2000).optional(),
     status: z.enum(["confirmed", "pending_payment"]).optional(),
+    /** Add this person to the party of an existing appointment. */
+    groupWithId: z.string().uuid().optional(),
     recurrence: z
       .object({
         frequency: z.enum(["none", "weekly", "biweekly"]).default("none"),
@@ -620,8 +660,28 @@ export async function POST(req: Request) {
   });
   clientId = client.id;
 
+  let groupId: string | null = null;
+  let groupStartedHere: string | null = null;
+  if (parsed.data.groupWithId) {
+    const anchor = await gate.db.appointment.findUnique({
+      where: { id: parsed.data.groupWithId },
+      select: { id: true, groupId: true, status: true, staffId: true },
+    });
+    if (!anchor) {
+      return NextResponse.json({ error: "Booking to join was not found" }, { status: 404 });
+    }
+    if (anchor.status === "cancelled" || anchor.status === "expired") {
+      return NextResponse.json({ error: "Can't add people to a cancelled booking" }, { status: 400 });
+    }
+    groupId = anchor.groupId || anchor.id;
+    if (!anchor.groupId) {
+      await gate.db.appointment.update({ where: { id: anchor.id }, data: { groupId } });
+      groupStartedHere = anchor.id;
+    }
+  }
+
   const firstStartsAt = new Date(parsed.data.startsAt);
-  const frequency = parsed.data.recurrence?.frequency || "none";
+  const frequency = groupId ? "none" : parsed.data.recurrence?.frequency || "none";
   const occurrenceStarts = buildOccurrenceStarts({
     firstStartsAt,
     frequency,
@@ -660,6 +720,7 @@ export async function POST(req: Request) {
         staffId,
         clientId,
         seriesId,
+        groupId,
         startsAt,
         endsAt,
         clientName,
@@ -692,8 +753,16 @@ export async function POST(req: Request) {
   }
 
   if (created.length === 0) {
+    if (groupStartedHere) {
+      await gate.db.appointment.update({ where: { id: groupStartedHere }, data: { groupId: null } });
+    }
     return NextResponse.json(
-      { error: "No appointments created — all times conflicted", skipped },
+      {
+        error: groupId
+          ? "That staff member is already booked at this time. Pick another staff member or a later time."
+          : "No appointments created — all times conflicted",
+        skipped,
+      },
       { status: 409 },
     );
   }
@@ -710,5 +779,6 @@ export async function POST(req: Request) {
     created: created.length,
     skipped,
     seriesId,
+    groupId,
   });
 }
