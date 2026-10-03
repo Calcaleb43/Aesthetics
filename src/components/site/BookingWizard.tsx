@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addDays, addMonths, format, parseISO, startOfMonth, endOfMonth } from "date-fns";
-import { formatCad, multiChargeBreakdown, taxOn } from "@/lib/booking/money";
+import { formatCad, multiChargeBreakdown, taxOn, zonedParts } from "@/lib/booking/money";
 import { applyDiscountToCharge, couponLabel } from "@/lib/booking/coupons";
 import { discountCentsForSubtotal, formatPromoDiscountLabel } from "@/lib/booking/promo-days";
 
@@ -100,12 +100,18 @@ export function BookingWizard({
   const [selectedAddonIds, setSelectedAddonIds] = useState<string[]>([]);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<string[]>([]);
   const [expandedVariantServiceIds, setExpandedVariantServiceIds] = useState<string[]>([]);
-  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const studioTodayKey = zonedParts(new Date(), timezone).dateKey;
+  const studioMonthStart = parseISO(`${studioTodayKey.slice(0, 7)}-01T12:00:00`);
+  const [month, setMonth] = useState(() => startOfMonth(studioMonthStart));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+  /** Month (YYYY-MM) that `availableDates` was fetched for; guards against acting on stale data. */
+  const [datesMonthKey, setDatesMonthKey] = useState<string | null>(null);
   const [loadingDates, setLoadingDates] = useState(false);
   const [seekingNextMonth, setSeekingNextMonth] = useState(false);
-  const monthSeekLimitRef = useRef<Date | null>(null);
+  const [seekExhausted, setSeekExhausted] = useState(false);
+  /** Auto-advance only runs until the user navigates months themselves. */
+  const autoSeekRef = useRef(true);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [preferredStaffId, setPreferredStaffId] = useState<string | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -547,21 +553,29 @@ export function BookingWizard({
     };
   }, [initialSlug]);
 
+  // A new selection (services, add-ons, staff) restarts the search for the first open month.
+  useEffect(() => {
+    autoSeekRef.current = true;
+    setSeekExhausted(false);
+  }, [bookingItems, selectedAddonIds, preferredStaffId]);
+
   useEffect(() => {
     if (!selectionComplete) {
       setAvailableDates([]);
+      setDatesMonthKey(null);
       setStaffOptions([]);
       setSeekingNextMonth(false);
-      monthSeekLimitRef.current = null;
       return;
     }
+    const monthKey = format(month, "yyyy-MM");
     let cancelled = false;
     setLoadingDates(true);
     (async () => {
+      let dates: string[] = [];
       try {
         const params = new URLSearchParams({
           datesOnly: "1",
-          month: format(month, "yyyy-MM"),
+          month: monthKey,
           items: JSON.stringify(bookingItems),
         });
         if (selectedAddonIds.length) params.set("addonIds", selectedAddonIds.join(","));
@@ -569,17 +583,16 @@ export function BookingWizard({
         const res = await fetch(`/api/booking/availability?${params}`);
         const data = await res.json();
         if (cancelled) return;
-        if (!res.ok) {
-          setAvailableDates([]);
-          return;
+        if (res.ok) {
+          dates = data.availableDates || [];
+          setStaffOptions(data.staff || []);
         }
-        setAvailableDates(data.availableDates || []);
-        setStaffOptions(data.staff || []);
       } catch {
-        if (!cancelled) setAvailableDates([]);
-      } finally {
-        if (!cancelled) setLoadingDates(false);
+        if (cancelled) return;
       }
+      setAvailableDates(dates);
+      setDatesMonthKey(monthKey);
+      setLoadingDates(false);
     })();
     return () => {
       cancelled = true;
@@ -589,27 +602,37 @@ export function BookingWizard({
   // If the visible month has no remaining open days, jump ahead to the next month that does.
   useEffect(() => {
     if (!selectionComplete || loadingDates) return;
+    const monthKey = format(month, "yyyy-MM");
+    if (datesMonthKey !== monthKey) return;
 
-    const todayKey = format(new Date(), "yyyy-MM-dd");
-    const hasOpenDays = availableDates.some((key) => key >= todayKey);
-    if (hasOpenDays) {
-      monthSeekLimitRef.current = null;
+    const hasOpenDays = availableDates.some((key) => key >= studioTodayKey);
+    if (hasOpenDays || !autoSeekRef.current) {
+      autoSeekRef.current = false;
       setSeekingNextMonth(false);
       return;
     }
 
-    const limit = monthSeekLimitRef.current ?? addMonths(startOfMonth(new Date()), 6);
-    monthSeekLimitRef.current = limit;
+    const limitKey = format(addMonths(studioMonthStart, 6), "yyyy-MM");
     const nextMonth = startOfMonth(addMonths(month, 1));
-    if (nextMonth > limit) {
-      monthSeekLimitRef.current = null;
+    if (format(nextMonth, "yyyy-MM") > limitKey) {
+      autoSeekRef.current = false;
       setSeekingNextMonth(false);
+      setSeekExhausted(true);
       return;
     }
 
     setSeekingNextMonth(true);
     setMonth(nextMonth);
-  }, [selectionComplete, loadingDates, availableDates, month]);
+    // studioMonthStart/studioTodayKey derive from timezone + today and are stable within a session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionComplete, loadingDates, availableDates, datesMonthKey, month]);
+
+  function goToMonth(next: Date) {
+    autoSeekRef.current = false;
+    setSeekingNextMonth(false);
+    setSeekExhausted(false);
+    setMonth(startOfMonth(next));
+  }
 
   useEffect(() => {
     if (!selectionComplete || !selectedDay) {
@@ -1160,8 +1183,9 @@ export function BookingWizard({
               <div className="mb-4 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-                  onClick={() => setMonth(startOfMonth(addDays(month, -15)))}
+                  className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-30"
+                  disabled={format(month, "yyyy-MM") <= studioTodayKey.slice(0, 7)}
+                  onClick={() => goToMonth(addDays(month, -15))}
                 >
                   Prev
                 </button>
@@ -1169,7 +1193,7 @@ export function BookingWizard({
                 <button
                   type="button"
                   className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-black/20 px-3 text-xs uppercase tracking-[0.12em]"
-                  onClick={() => setMonth(startOfMonth(addDays(endOfMonth(month), 1)))}
+                  onClick={() => goToMonth(addDays(endOfMonth(month), 1))}
                 >
                   Next
                 </button>
@@ -1197,7 +1221,7 @@ export function BookingWizard({
                 {daysInMonth.map((day) => {
                   const key = format(day, "yyyy-MM-dd");
                   const active = selectedDay === key;
-                  const past = day < new Date(new Date().toDateString());
+                  const past = key < studioTodayKey;
                   const open = availableDates.includes(key);
                   const disabled = past || (!open && !loadingDates);
                   return (
@@ -1224,9 +1248,11 @@ export function BookingWizard({
                   ? seekingNextMonth
                     ? "No open days this month — checking the next available month…"
                     : "Checking open days…"
-                  : availableDates.some((key) => key >= format(new Date(), "yyyy-MM-dd"))
+                  : availableDates.some((key) => key >= studioTodayKey)
                     ? "Only dates with open times are selectable."
-                    : "No open dates found in the next several months. Try different services or check back later."}{" "}
+                    : seekExhausted
+                      ? "No open dates found in the next several months. Try different services or check back later."
+                      : `No open dates in ${format(month, "MMMM")}. Try another month.`}{" "}
                 Times in {timezone.replace(/_/g, " ")}.
               </p>
             </div>

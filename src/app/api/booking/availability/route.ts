@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addDays, endOfMonth, startOfMonth, subMinutes } from "date-fns";
+import { addDays, subMinutes } from "date-fns";
 import {
   activeHoldStatuses,
   computeAvailableSlots,
@@ -158,6 +158,7 @@ export async function GET(req: Request) {
     let from: Date;
     let to: Date;
     let filterDateKey: string | null = null;
+    let filterMonthKey: string | null = null;
     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
       const [y, m, d] = dateParam.split("-").map(Number);
       from = zonedLocalToUtc(y, m, d, 0, 0, settings.timezone);
@@ -167,9 +168,11 @@ export async function GET(req: Request) {
       filterDateKey = dateParam;
     } else if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
       const [y, m] = monthParam.split("-").map(Number);
-      from = startOfMonth(new Date(Date.UTC(y, m - 1, 1, 12)));
-      to = endOfMonth(from);
-      to = addDays(to, 1);
+      const nextY = m === 12 ? y + 1 : y;
+      const nextM = m === 12 ? 1 : m + 1;
+      from = zonedLocalToUtc(y, m, 1, 0, 0, settings.timezone);
+      to = zonedLocalToUtc(nextY, nextM, 1, 0, 0, settings.timezone);
+      filterMonthKey = monthParam;
     } else {
       from = fromParam ? new Date(fromParam) : new Date();
       to = toParam ? new Date(toParam) : addDays(from, 14);
@@ -407,7 +410,9 @@ export async function GET(req: Request) {
           return dateKeyFromParts(parts);
         }),
       ),
-    ].sort();
+    ]
+      .filter((key) => !filterMonthKey || key.startsWith(`${filterMonthKey}-`))
+      .sort();
 
     const slotsWithPromo = attachPromoToSlots(
       filterDateKey

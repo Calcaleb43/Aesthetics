@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { addDays, endOfMonth, format, parseISO, startOfMonth } from "date-fns";
+import { zonedParts } from "@/lib/booking/money";
 
 type AppointmentView = {
   id: string;
@@ -239,7 +240,7 @@ export function ManageAppointmentClient({ token }: { token: string }) {
   }
 
   const ended = ["cancelled", "completed", "expired", "no_show"].includes(appointment.status);
-  const todayKey = format(new Date(), "yyyy-MM-dd");
+  const todayKey = zonedParts(new Date(), timezone).dateKey;
 
   return (
     <div className="space-y-8">
@@ -350,7 +351,7 @@ export function ManageAppointmentClient({ token }: { token: string }) {
                 {daysInMonth.map((day) => {
                   const key = format(day, "yyyy-MM-dd");
                   const active = selectedDay === key;
-                  const past = day < new Date(new Date().toDateString());
+                  const past = key < todayKey;
                   const open = availableDates.includes(key);
                   const disabled = past || (!open && !loadingDates);
                   return (
