@@ -18,6 +18,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState, useTransition } f
 import { useRouter, useSearchParams } from "next/navigation";
 import { BlockedTimesPanel, type BlockedTimeItem } from "@/components/admin/calendar/BlockedTimesPanel";
 import { DayOverridesPanel } from "@/components/admin/calendar/DayOverridesPanel";
+import { ContactActions, appointmentSmsBody } from "@/components/admin/ContactActions";
 import {
   dayKeyFromWeekday,
   type WeeklyHours,
@@ -1417,19 +1418,26 @@ export function AdminCalendar({
                             ) : null}
                           </p>
                           <p className="text-sm text-white/50">
-                            <a
-                              href={`mailto:${item.appt.clientEmail}`}
-                              className="underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {item.appt.clientEmail}
-                            </a>
+                            {item.appt.clientEmail}
                             {item.appt.clientPhone ? ` · ${item.appt.clientPhone}` : ""}
                             {item.appt.staffName ? ` · ${item.appt.staffName}` : ""}
                           </p>
                           {item.appt.notes ? (
                             <p className="mt-2 text-sm text-white/45">{item.appt.notes}</p>
                           ) : null}
+                          <ContactActions
+                            className="mt-3"
+                            name={item.appt.clientName}
+                            email={item.appt.clientEmail}
+                            phone={item.appt.clientPhone}
+                            stopPropagation
+                            emailSubject={`Your ${item.appt.serviceTitle} at Aniekanvas`}
+                            smsBody={appointmentSmsBody({
+                              clientName: item.appt.clientName,
+                              serviceTitle: item.appt.serviceTitle,
+                              whenLabel: formatWhen(item.appt.startsAt, timezone),
+                            })}
+                          />
                         </div>
                       </div>
                       <div className="text-right text-xs uppercase tracking-[0.12em] text-white/45">
@@ -1506,9 +1514,23 @@ export function AdminCalendar({
                       Part of a recurring series
                     </p>
                   ) : null}
-                  <a href={`mailto:${selected.clientEmail}`} className="inline-block text-[#c6a75e] underline">
-                    Email {selected.clientName}
-                  </a>
+                  <p className="text-sm text-white/55">
+                    {selected.clientName}
+                    {selected.clientEmail ? ` · ${selected.clientEmail}` : ""}
+                    {selected.clientPhone ? ` · ${selected.clientPhone}` : ""}
+                  </p>
+                  <ContactActions
+                    className="mt-2"
+                    name={selected.clientName}
+                    email={selected.clientEmail}
+                    phone={selected.clientPhone}
+                    emailSubject={`Your ${selected.serviceTitle} at Aniekanvas`}
+                    smsBody={appointmentSmsBody({
+                      clientName: selected.clientName,
+                      serviceTitle: selected.serviceTitle,
+                      whenLabel: formatWhen(selected.startsAt, timezone),
+                    })}
+                  />
                 </div>
               ) : null}
 

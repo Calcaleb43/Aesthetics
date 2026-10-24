@@ -50,7 +50,9 @@ export function navVisible(role: AdminRole, href: string) {
   if (href.startsWith("/admin/appointments") || href.startsWith("/admin/availability") || href.startsWith("/admin/payments")) {
     return canViewCalendar(role);
   }
-  if (href.startsWith("/admin/revenue")) return canManageCms(role);
+  if (href.startsWith("/admin/revenue") || href.startsWith("/admin/reports")) {
+    return canManageCms(role);
+  }
   if (href.startsWith("/admin/inquiries")) return canViewInquiries(role);
   if (role === "staff" || role === "viewer") return false;
   if (
